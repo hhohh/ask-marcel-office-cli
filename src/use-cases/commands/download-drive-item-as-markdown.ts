@@ -3,9 +3,8 @@ import type { Result } from '../../domain/result.ts';
 import { err } from '../../domain/result.ts';
 import type { GraphClient, GraphError } from '../../infra/graph-client.ts';
 import type { CommandMeta } from './command-types.ts';
-import { convertToMarkdown } from './markdown-pipeline.ts';
-import { isPlainTextFilename } from './text-passthrough.ts';
 import { formatZodError } from './format-zod-error.ts';
+import { officeToMarkdown } from './office-to-markdown.ts';
 
 const schema = z.object({ driveId: z.string().min(1), itemId: z.string().min(1) });
 
@@ -14,23 +13,16 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
   if (!parsed.success) return err({ type: 'validation_error', message: formatZodError(parsed.error) });
   const { driveId, itemId } = parsed.data;
 
-  // Same pre-fetch pattern as the PDF variant — Graph `?format=html`
-  // only accepts the Office source formats. For plain text / markdown
-  // / HTML / JSON we short-circuit and return the raw bytes; turning
-  // those through turndown would either round-trip or corrupt them.
   const meta = await graph.get(`/drives/${driveId}/items/${itemId}`);
   if (!meta.ok) return meta;
   const name = (meta.value as { name?: string }).name ?? '';
 
-  if (isPlainTextFilename(name)) {
-    return graph.getBinary(`/drives/${driveId}/items/${itemId}/content`);
-  }
-  return convertToMarkdown(graph, `/drives/${driveId}/items/${itemId}/content?format=html`);
+  return officeToMarkdown(graph, `/drives/${driveId}/items/${itemId}/content`, name);
 };
 
 const meta: CommandMeta = {
   summary:
-    'Download a OneDrive / SharePoint file converted to markdown via Graph `?format=html` + local turndown. **Narrow input support:** Microsoft Graph documents `?format=html` as accepting only four source extensions — loop, fluid, wbtx, whiteboard (https://learn.microsoft.com/en-us/graph/api/driveitem-get-content-format). For Office documents (docx, pptx, xlsx, pdf) Graph returns `Sandbox_InputFormatNotSupported` — use `download-drive-item-as-pdf` instead, since `?format=pdf` accepts 38 input extensions including all Office formats. Plain-text source extensions short-circuit locally to raw bytes.',
+    'Download a OneDrive / SharePoint file converted to markdown via local conversion pipelines. Supported: docx (mammoth → turndown, with inline images as data: URIs), xlsx (one markdown table per sheet via sheetjs), plus plain-text passthrough (txt/md/html/json/csv/yaml/etc.). For pptx use `download-drive-item-as-pdf` — Graph PDF preserves slide layout, and a vision-capable LLM reads it more reliably than flattened bullets. For pdf/rtf/odt/etc. also use `download-drive-item-as-pdf` — Graph `?format=pdf` accepts 38 input extensions. Loop/Fluid/Whiteboard files use Graph `?format=html` (the four inputs Microsoft documents — https://learn.microsoft.com/en-us/graph/api/driveitem-get-content-format).',
   category: 'drive',
   graphMethod: 'GET',
   graphPathTemplate: '/drives/{drive-id}/items/{item-id}/content?format=html',

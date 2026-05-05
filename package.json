@@ -1,6 +1,6 @@
 {
   "name": "ask-marcel-office-cli",
-  "version": "0.6.5",
+  "version": "0.7.0",
   "description": "Microsoft Graph CLI + library — typed Bun/TypeScript wrapper around 80+ Graph operations (read + on-the-fly PDF/markdown conversion) reachable from a Teams browser-OAuth token.",
   "license": "MIT",
   "author": "Vincent Delacourt <vincent.delacourt@adama-development.com>",
@@ -73,6 +73,7 @@
     "@types/bun": "^1.2.0",
     "@types/turndown": "^5.0.6",
     "@types/update-notifier": "^6.0.8",
+    "docx": "^9.6.1",
     "eslint": "^9.28.0",
     "eslint-plugin-prettier": "^5.4.1",
     "eslint-plugin-security": "^3.0.1",
@@ -83,10 +84,13 @@
   },
   "dependencies": {
     "commander": "^14.0.3",
+    "mammoth": "^1.12.0",
     "playwright": "^1.59.1",
     "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
     "update-notifier": "^7.3.1",
     "winston": "^3.19.0",
+    "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   }
 }

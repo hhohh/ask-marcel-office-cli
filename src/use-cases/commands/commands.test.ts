@@ -5,6 +5,7 @@ import { ok } from '../../domain/result.ts';
 import type { AuthManager } from '../../infra/auth.ts';
 import type { FetchFn, GraphError } from '../../infra/graph-client.ts';
 import { createGraphClient } from '../../infra/graph-client.ts';
+import { buildSampleDocx, buildSampleXlsx } from '../../test-helpers/office-fixtures.ts';
 import * as downloadDriveItemAsMarkdown from './download-drive-item-as-markdown.ts';
 import * as downloadDriveItemAsPdf from './download-drive-item-as-pdf.ts';
 import * as downloadDriveItemVersionAsMarkdown from './download-drive-item-version-as-markdown.ts';
@@ -446,13 +447,14 @@ describe('commands', () => {
     }
   });
 
-  it('download-drive-item-as-markdown converts Office HTML to markdown via the pipeline', async () => {
+  it('download-drive-item-as-markdown converts a docx via the local mammoth pipeline (no Graph format=html call)', async () => {
+    const docxBytes = await buildSampleDocx();
     const fetchFn = stagedFetch([
       { urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1', method: 'GET', response: Response.json({ name: 'q3.docx' }) },
       {
-        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1/content?format=html',
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1/content',
         method: 'GET',
-        response: () => new Response('<h1>Q3</h1>', { status: 200, headers: { 'content-type': 'text/html' } }),
+        response: () => new Response(docxBytes as unknown as BodyInit, { status: 200, headers: { 'content-type': 'application/octet-stream' } }),
       },
     ]);
     const cmd = cmdMap['download-drive-item-as-markdown'];
@@ -463,7 +465,7 @@ describe('commands', () => {
     if (result.ok) {
       const v = result.value as { contentType: string; text: string };
       expect(v.contentType).toBe('text/markdown');
-      expect(v.text).toContain('# Q3');
+      expect(v.text).toContain('# Sample Heading');
     }
   });
 
@@ -522,13 +524,14 @@ describe('commands', () => {
     if (result.ok) expect(result.value).toEqual({ '@microsoft.graph.downloadUrl': 'https://cdn.example/v3.pdf' });
   });
 
-  it('download-drive-item-version-as-markdown converts a non-current version HTML to markdown', async () => {
+  it('download-drive-item-version-as-markdown converts a non-current xlsx version via the local sheetjs pipeline', async () => {
+    const xlsxBytes = buildSampleXlsx();
     const fetchFn = stagedFetch([
       { urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1', method: 'GET', response: Response.json({ name: 'budget.xlsx' }) },
       {
-        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1/versions/3.0/content?format=html',
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1/versions/3.0/content',
         method: 'GET',
-        response: () => new Response('<h2>v3</h2>', { status: 200, headers: { 'content-type': 'text/html' } }),
+        response: () => new Response(xlsxBytes as unknown as BodyInit, { status: 200, headers: { 'content-type': 'application/octet-stream' } }),
       },
     ]);
     const cmd = cmdMap['download-drive-item-version-as-markdown'];
@@ -538,7 +541,7 @@ describe('commands', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       const v = result.value as { text: string };
-      expect(v.text).toContain('## v3');
+      expect(v.text).toContain('## Sheet1');
     }
   });
 
@@ -1119,7 +1122,8 @@ describe('commands', () => {
     }
   });
 
-  it('convert-mail-attachment-to-markdown resolves a referenceAttachment via /shares/{token}/driveItem and runs pipeline', async () => {
+  it('convert-mail-attachment-to-markdown resolves a referenceAttachment via /shares/{token}/driveItem and runs the local docx pipeline', async () => {
+    const docxBytes = await buildSampleDocx();
     const fetchFn: FetchFn = async (url) => {
       if (url.endsWith('/attachments/aRef')) {
         return Response.json({ '@odata.type': '#microsoft.graph.referenceAttachment', sourceUrl: 'https://contoso.sharepoint.com/sites/X/q3.docx' });
@@ -1127,8 +1131,8 @@ describe('commands', () => {
       if (url.includes('/shares/u!')) {
         return Response.json({ id: 'i-q3', name: 'q3.docx', parentReference: { driveId: 'd1' } });
       }
-      if (url.endsWith('/drives/d1/items/i-q3/content?format=html')) {
-        return new Response('<h1>Q3</h1>', { status: 200, headers: { 'content-type': 'text/html' } });
+      if (url.endsWith('/drives/d1/items/i-q3/content')) {
+        return new Response(docxBytes as unknown as BodyInit, { status: 200, headers: { 'content-type': 'application/octet-stream' } });
       }
       throw new Error(`unexpected fetch ${url}`);
     };
@@ -1139,7 +1143,7 @@ describe('commands', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       const v = result.value as { text: string };
-      expect(v.text).toContain('# Q3');
+      expect(v.text).toContain('# Sample Heading');
     }
   });
 
@@ -1295,22 +1299,6 @@ describe('commands', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('convert-mail-attachment-to-markdown returns api_error when upload returns no driveItem id', async () => {
-    const fetchFn: FetchFn = async (url, init) => {
-      if (url.endsWith('/attachments/aFile')) {
-        return Response.json({ '@odata.type': '#microsoft.graph.fileAttachment', name: 'plan.docx', contentBytes: btoa('docx-bytes') });
-      }
-      if (init?.method === 'PUT') return Response.json({ name: 'no-id' });
-      throw new Error('unexpected');
-    };
-    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
-    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
-    const graph = createGraphClient(fakeAuth(), fetchFn);
-    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aFile' });
-    expect(result.ok).toBe(false);
-    if (!result.ok && result.error.type === 'api_error') expect(result.error.message).toContain('upload returned no driveItem id');
-  });
-
   it('convert-mail-attachment-to-pdf returns api_error when upload returns no driveItem id', async () => {
     // Distinct attachment id so the fake's URL-suffix check differs from the markdown variant's test above.
     const fetchFn: FetchFn = async (url, init) => {
@@ -1328,14 +1316,19 @@ describe('commands', () => {
     if (!result.ok && result.error.type === 'api_error') expect(result.error.message).toContain('upload returned no driveItem id');
   });
 
-  it('convert-mail-attachment-to-markdown handles a fileAttachment with the upload-convert-delete dance', async () => {
+  it('convert-mail-attachment-to-markdown decodes a docx fileAttachment locally and runs it through mammoth — no upload, no Graph format=html', async () => {
+    const docxBytes = await buildSampleDocx();
+    let putCalled = false;
     let deleteCalled = false;
     const fetchFn: FetchFn = async (url, init) => {
       if (url.endsWith('/attachments/aFile')) {
-        return Response.json({ '@odata.type': '#microsoft.graph.fileAttachment', name: 'plan.docx', contentBytes: btoa('docx-bytes') });
+        const b64 = btoa(String.fromCharCode(...docxBytes));
+        return Response.json({ '@odata.type': '#microsoft.graph.fileAttachment', name: 'plan.docx', contentBytes: b64 });
       }
-      if (init?.method === 'PUT') return Response.json({ id: 'temp-i1' });
-      if (url.endsWith('/content?format=html')) return new Response('<h1>Q3</h1>', { status: 200, headers: { 'content-type': 'text/html' } });
+      if (init?.method === 'PUT') {
+        putCalled = true;
+        return new Response(null, { status: 200 });
+      }
       if (init?.method === 'DELETE') {
         deleteCalled = true;
         return new Response(null, { status: 204 });
@@ -1350,9 +1343,64 @@ describe('commands', () => {
     if (result.ok) {
       const v = result.value as { contentType: string; text: string };
       expect(v.contentType).toBe('text/markdown');
-      expect(v.text).toContain('# Q3');
+      expect(v.text).toContain('# Sample Heading');
     }
-    expect(deleteCalled).toBe(true);
+    expect(putCalled).toBe(false);
+    expect(deleteCalled).toBe(false);
+  });
+
+  it('convert-mail-attachment-to-markdown errs with the pptx-specific PDF hint for a pptx fileAttachment', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith('/attachments/aPptx')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.fileAttachment', name: 'deck.pptx', contentBytes: btoa('zzz') });
+      }
+      throw new Error(`unexpected ${url}`);
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aPptx' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(415);
+      expect(result.error.message).toContain('pptx attachment');
+      expect(result.error.message).toContain('convert-mail-attachment-to-pdf');
+    }
+  });
+
+  it('convert-mail-attachment-to-markdown errs with the generic PDF hint for non-Office fileAttachments', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith('/attachments/aPdf')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.fileAttachment', name: 'report.pdf', contentBytes: btoa('zzz') });
+      }
+      throw new Error(`unexpected ${url}`);
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aPdf' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.message).toContain('pdf attachment');
+      expect(result.error.message).toContain('38 input extensions');
+    }
+  });
+
+  it('convert-mail-attachment-to-markdown errs with `<no-extension>` placeholder for fileAttachments without a recognizable extension', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith('/attachments/aNoExt')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.fileAttachment', name: 'README', contentBytes: btoa('zzz') });
+      }
+      throw new Error(`unexpected ${url}`);
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aNoExt' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.message).toContain('<no-extension>');
+    }
   });
 
   it('get-onenote-page-as-markdown turns Graph-returned HTML into a markdown envelope', async () => {
@@ -1537,7 +1585,9 @@ const pathFixtures: Array<{ name: string; params: Record<string, string>; expect
   {
     name: 'download-drive-item-as-markdown',
     params: { driveId: 'd1', itemId: 'i1' },
-    expectedPath: '/drives/d1/items/i1/content?format=html',
+    // No-extension metadata response from fakeFetch makes the dispatcher fall into the unsupported branch
+    // before any /content fetch — so the LAST URL hit is the metadata GET.
+    expectedPath: '/drives/d1/items/i1',
   },
   {
     name: 'download-drive-item-version-as-pdf',
@@ -1547,7 +1597,8 @@ const pathFixtures: Array<{ name: string; params: Record<string, string>; expect
   {
     name: 'download-drive-item-version-as-markdown',
     params: { driveId: 'd1', itemId: 'i1', versionId: '3.0' },
-    expectedPath: '/drives/d1/items/i1/versions/3.0/content?format=html',
+    // Same as above — no-extension metadata short-circuits in the dispatcher.
+    expectedPath: '/drives/d1/items/i1',
   },
   { name: 'search-onedrive-files', params: { driveId: 'd1', query: 'report' }, expectedPath: "/drives/d1/search(q='report')" },
   { name: 'search-my-documents', params: { query: 'budget' }, expectedPath: "/me/drive/search(q='budget')" },

@@ -3,9 +3,8 @@ import type { Result } from '../../domain/result.ts';
 import { err } from '../../domain/result.ts';
 import type { GraphClient, GraphError } from '../../infra/graph-client.ts';
 import type { CommandMeta } from './command-types.ts';
-import { convertToMarkdown } from './markdown-pipeline.ts';
-import { isPlainTextFilename } from './text-passthrough.ts';
 import { formatZodError } from './format-zod-error.ts';
+import { officeToMarkdown } from './office-to-markdown.ts';
 
 const schema = z.object({
   driveId: z.string().min(1),
@@ -22,15 +21,12 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
   if (!meta.ok) return meta;
   const name = (meta.value as { name?: string }).name ?? '';
 
-  if (isPlainTextFilename(name)) {
-    return graph.getBinary(`/drives/${driveId}/items/${itemId}/versions/${versionId}/content`);
-  }
-  return convertToMarkdown(graph, `/drives/${driveId}/items/${itemId}/versions/${versionId}/content?format=html`);
+  return officeToMarkdown(graph, `/drives/${driveId}/items/${itemId}/versions/${versionId}/content`, name);
 };
 
 const meta: CommandMeta = {
   summary:
-    'Download a *historical version* of a OneDrive / SharePoint file converted to markdown. Same narrow input support as `download-drive-item-as-markdown` — Graph `?format=html` only accepts loop, fluid, wbtx, whiteboard (https://learn.microsoft.com/en-us/graph/api/driveitem-get-content-format). Office documents return `Forbidden` on this historical-version endpoint specifically (vs. `Sandbox_InputFormatNotSupported` on the current-version endpoint). Use `download-drive-item-version-as-pdf` for Office sources. Plain-text extensions short-circuit to raw bytes.',
+    'Download a *historical version* of a OneDrive / SharePoint file converted to markdown. Same local conversion pipeline as `download-drive-item-as-markdown`: docx via mammoth, xlsx via sheetjs (markdown tables per sheet), plus plain-text passthrough. For pptx use `download-drive-item-version-as-pdf` (PDF preserves slide layout). For pdf/rtf/odt/etc. also use the PDF sibling. Loop/Fluid/Whiteboard use Graph `?format=html` (the four inputs Microsoft documents — https://learn.microsoft.com/en-us/graph/api/driveitem-get-content-format).',
   category: 'drive',
   graphMethod: 'GET',
   graphPathTemplate: '/drives/{drive-id}/items/{item-id}/versions/{version-id}/content?format=html',

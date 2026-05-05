@@ -3,6 +3,7 @@ import type { Result } from '../../domain/result.ts';
 import { err, ok } from '../../domain/result.ts';
 import type { GraphClient, GraphError } from '../../infra/graph-client.ts';
 import type { CommandMeta } from './command-types.ts';
+import { docxToMarkdown } from './docx-to-markdown.ts';
 import {
   embeddedContactToMarkdown,
   embeddedEventToMarkdown,
@@ -11,10 +12,11 @@ import {
   type EmbeddedEvent,
   type EmbeddedMessage,
 } from './embedded-item-to-markdown.ts';
-import { convertToMarkdown } from './markdown-pipeline.ts';
+import { formatZodError } from './format-zod-error.ts';
+import { officeToMarkdown } from './office-to-markdown.ts';
 import { buildShareToken } from './sharepoint-link-extractor.ts';
 import { isPlainTextFilename } from './text-passthrough.ts';
-import { formatZodError } from './format-zod-error.ts';
+import { xlsxToMarkdown } from './xlsx-to-markdown.ts';
 
 const schema = z.object({
   messageId: z.string().min(1),
@@ -28,14 +30,19 @@ const decodeBase64 = (b64: string): Uint8Array => {
   return bytes;
 };
 
-const safeExtension = (name: string): string => {
-  const dot = name.lastIndexOf('.');
-  if (dot === -1 || dot === name.length - 1) return 'bin';
-  const raw = name.slice(dot + 1).toLowerCase();
-  return /^[a-z0-9]{1,8}$/.test(raw) ? raw : 'bin';
+const PPTX_HINT =
+  'pptx attachment not supported by `convert-mail-attachment-to-markdown`. Use `convert-mail-attachment-to-pdf` — Graph PDF conversion preserves slide layout, and a vision-capable LLM reads it more reliably than flattened slide-by-slide bullets.';
+
+const genericHint = (ext: string): string =>
+  `${ext} attachment not supported by \`convert-mail-attachment-to-markdown\`. Use \`convert-mail-attachment-to-pdf\` — Graph \`?format=pdf\` accepts 38 input extensions.`;
+
+const extensionOf = (filename: string): string => {
+  const dot = filename.lastIndexOf('.');
+  if (dot === -1 || dot === filename.length - 1) return '';
+  return filename.slice(dot + 1).toLowerCase();
 };
 
-const convertFileAttachment = async (graph: GraphClient, attachment: { name?: string; contentBytes?: string }): Promise<Result<unknown, GraphError>> => {
+const convertFileAttachment = async (attachment: { name?: string; contentBytes?: string }): Promise<Result<unknown, GraphError>> => {
   const name = attachment.name ?? 'unnamed';
   const contentBytes = attachment.contentBytes ?? '';
   const bytes = decodeBase64(contentBytes);
@@ -45,24 +52,15 @@ const convertFileAttachment = async (graph: GraphClient, attachment: { name?: st
       contentType: 'text/plain',
       size: bytes.byteLength,
       base64: contentBytes,
-      note: `pre-checked plain-text source (${name}); raw bytes returned without Graph conversion`,
+      note: `pre-checked plain-text source (${name}); raw bytes returned without conversion`,
     });
   }
 
-  const ext = safeExtension(name);
-  const tempName = `${crypto.randomUUID()}.${ext}`;
-  const basePath = `/me/drive/root:/.ask-marcel-temp/${tempName}`;
-
-  const uploaded = await graph.put(basePath, bytes, 'application/octet-stream');
-  if (!uploaded.ok) return uploaded;
-  const itemId = (uploaded.value as { id?: string }).id;
-  if (typeof itemId !== 'string') {
-    return err({ type: 'api_error', status: 500, message: 'upload returned no driveItem id' });
-  }
-
-  const converted = await convertToMarkdown(graph, `/me/drive/items/${itemId}/content?format=html`);
-  await graph.delete(`/me/drive/items/${itemId}`);
-  return converted;
+  const ext = extensionOf(name);
+  if (ext === 'docx') return docxToMarkdown(bytes);
+  if (ext === 'xlsx') return xlsxToMarkdown(bytes);
+  if (ext === 'pptx') return err({ type: 'api_error', status: 415, message: PPTX_HINT });
+  return err({ type: 'api_error', status: 415, message: genericHint(ext === '' ? '<no-extension>' : ext) });
 };
 
 const convertReferenceAttachment = async (graph: GraphClient, attachment: { sourceUrl?: string }): Promise<Result<unknown, GraphError>> => {
@@ -79,10 +77,7 @@ const convertReferenceAttachment = async (graph: GraphClient, attachment: { sour
   if (typeof driveId !== 'string' || typeof itemId !== 'string') {
     return err({ type: 'api_error', status: 500, message: 'resolved driveItem missing id or driveId' });
   }
-  if (isPlainTextFilename(name)) {
-    return graph.getBinary(`/drives/${driveId}/items/${itemId}/content`);
-  }
-  return convertToMarkdown(graph, `/drives/${driveId}/items/${itemId}/content?format=html`);
+  return officeToMarkdown(graph, `/drives/${driveId}/items/${itemId}/content`, name);
 };
 
 const convertItemAttachment = (attachment: { item?: Record<string, unknown> }): Result<unknown, GraphError> => {
@@ -129,7 +124,7 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
 
   switch (odataType) {
     case '#microsoft.graph.fileAttachment':
-      return convertFileAttachment(graph, a as { name?: string; contentBytes?: string });
+      return convertFileAttachment(a as { name?: string; contentBytes?: string });
     case '#microsoft.graph.referenceAttachment':
       return convertReferenceAttachment(graph, a as { sourceUrl?: string });
     case '#microsoft.graph.itemAttachment':
@@ -141,7 +136,7 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
 
 const meta: CommandMeta = {
   summary:
-    'Convert an Outlook mail attachment to markdown. Polymorphic on the attachment’s `@odata.type`: fileAttachment uploads the bytes to a temp folder, runs Graph `?format=html`, runs the result through turndown, then deletes the temp item; referenceAttachment resolves via /shares/{token}/driveItem and runs the same pipeline in place; itemAttachment (embedded mail / event / contact) is rendered locally without any Graph conversion via dedicated renderers. **Narrow Graph HTML input support:** `?format=html` only accepts loop, fluid, wbtx, whiteboard source extensions (https://learn.microsoft.com/en-us/graph/api/driveitem-get-content-format) — Office attachments (docx, pptx, xlsx, pdf) return `Sandbox_InputFormatNotSupported`. Use `convert-mail-attachment-to-pdf` for Office attachments. itemAttachment and plain-text extensions are unaffected and work on every input.',
+    'Convert an Outlook mail attachment to markdown. Polymorphic on the attachment’s `@odata.type`: fileAttachment decodes the inline bytes and runs them through the local conversion pipeline (docx via mammoth, xlsx via sheetjs, plus plain-text passthrough); referenceAttachment resolves via /shares/{token}/driveItem and routes through the same dispatcher; itemAttachment (embedded mail / event / contact) is rendered locally via dedicated renderers. For pptx attachments, `convert-mail-attachment-to-pdf` is recommended (Graph PDF preserves slide layout). For pdf/rtf/odt/etc. also use the PDF sibling. Loop/Fluid/Whiteboard reference-attachments use Graph `?format=html` (the four inputs Microsoft documents).',
   category: 'mail',
   graphMethod: 'GET',
   graphPathTemplate: '/me/messages/{message-id}/attachments/{attachment-id}',
