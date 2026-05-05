@@ -3,8 +3,8 @@ import type { Result } from '../../domain/result.ts';
 import { err } from '../../domain/result.ts';
 import type { GraphClient, GraphError } from '../../infra/graph-client.ts';
 import type { CommandMeta } from './command-types.ts';
-import { isPlainTextFilename } from './text-passthrough.ts';
 import { formatZodError } from './format-zod-error.ts';
+import { isPdfSource, isPlainTextFilename } from './text-passthrough.ts';
 
 const schema = z.object({
   driveId: z.string().min(1),
@@ -18,14 +18,15 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
   const { driveId, itemId, versionId } = parsed.data;
 
   // Pre-fetch the driveItem for its filename. Same pre-check as the
-  // non-versioned variant: short-circuit to a raw-bytes download for
-  // plain-text source extensions instead of letting Graph reject the
-  // conversion call with a confusing 4xx.
+  // non-versioned variant: short-circuit to raw-bytes download for
+  // plain-text source extensions and for `pdf` sources (Graph's
+  // `?format=pdf` does not list `pdf` in its supported input set —
+  // the CDN responds 406 InputFormatNotSupported on pdf → pdf).
   const meta = await graph.get(`/drives/${driveId}/items/${itemId}`);
   if (!meta.ok) return meta;
   const name = (meta.value as { name?: string }).name ?? '';
 
-  if (isPlainTextFilename(name)) {
+  if (isPlainTextFilename(name) || isPdfSource(name)) {
     return graph.getBinary(`/drives/${driveId}/items/${itemId}/versions/${versionId}/content`);
   }
   return graph.getBinary(`/drives/${driveId}/items/${itemId}/versions/${versionId}/content?format=pdf`);
@@ -33,7 +34,7 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
 
 const meta: CommandMeta = {
   summary:
-    'Download a *historical version* of a OneDrive / SharePoint file converted to PDF on the fly by Graph. Same shape as `download-drive-item-as-pdf` plus a `--version-id`. Graph refuses to serve the *current* version through this endpoint — for the current version use `download-drive-item-as-pdf` instead. Plain-text source extensions short-circuit to a raw-bytes download.',
+    'Download a *historical version* of a OneDrive / SharePoint file converted to PDF on the fly by Graph. Same shape as `download-drive-item-as-pdf` plus a `--version-id`. Graph refuses to serve the *current* version through this endpoint — for the current version use `download-drive-item-as-pdf` instead. Plain-text source extensions and `pdf` sources short-circuit to a raw-bytes download (Graph’s `?format=pdf` does not accept `pdf` as an input format).',
   category: 'drive',
   graphMethod: 'GET',
   graphPathTemplate: '/drives/{drive-id}/items/{item-id}/versions/{version-id}/content?format=pdf',

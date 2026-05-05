@@ -585,6 +585,40 @@ describe('commands', () => {
     }
   });
 
+  it('download-drive-item-as-pdf short-circuits to raw download when the source itself is already a pdf (avoids the format=pdf 406 InputFormatNotSupported)', async () => {
+    const fetchFn = stagedFetch([
+      { urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iPdf', method: 'GET', response: Response.json({ name: 'report.pdf' }) },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iPdf/content',
+        method: 'GET',
+        response: () => Response.json({ '@microsoft.graph.downloadUrl': 'https://cdn.example/report.pdf' }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-as-pdf'];
+    if (!cmd) throw new Error('download-drive-item-as-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'iPdf' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual({ '@microsoft.graph.downloadUrl': 'https://cdn.example/report.pdf' });
+  });
+
+  it('download-drive-item-version-as-pdf short-circuits to raw download for a pdf source (same reason as the non-versioned variant)', async () => {
+    const fetchFn = stagedFetch([
+      { urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iPdf', method: 'GET', response: Response.json({ name: 'archive.pdf' }) },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iPdf/versions/2.0/content',
+        method: 'GET',
+        response: () => Response.json({ '@microsoft.graph.downloadUrl': 'https://cdn.example/v2.pdf' }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-version-as-pdf'];
+    if (!cmd) throw new Error('download-drive-item-version-as-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'iPdf', versionId: '2.0' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual({ '@microsoft.graph.downloadUrl': 'https://cdn.example/v2.pdf' });
+  });
+
   it('download-drive-item-version-as-pdf propagates an err from the metadata pre-fetch unchanged', async () => {
     const fetchFn = stagedFetch([
       {
@@ -978,9 +1012,60 @@ describe('commands', () => {
     if (result.ok) {
       const v = result.value as { contentType: string; size: number; base64: string; note: string };
       expect(v.contentType).toBe('text/plain');
-      expect(v.note).toContain('plain-text source');
+      expect(v.note).toContain('pre-checked source');
       expect(atob(v.base64)).toBe('# Hello');
     }
+  });
+
+  it('convert-mail-attachment-to-pdf short-circuits a pdf fileAttachment to its raw bytes (no upload-convert dance, no Graph format=pdf call)', async () => {
+    const calls: Array<{ method: string; url: string }> = [];
+    const fetchFn: FetchFn = async (url, init) => {
+      calls.push({ method: init?.method ?? 'GET', url });
+      if (url.endsWith('/attachments/aPdf')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.fileAttachment', name: 'report.pdf', contentBytes: btoa('%PDF-fake') });
+      }
+      throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${url}`);
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-pdf'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aPdf' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { contentType: string; base64: string; note: string };
+      expect(v.contentType).toBe('application/pdf');
+      expect(v.note).toContain('pre-checked source');
+      expect(atob(v.base64)).toBe('%PDF-fake');
+    }
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false);
+    expect(calls.some((c) => c.url.includes('format=pdf'))).toBe(false);
+  });
+
+  it('convert-mail-attachment-to-pdf short-circuits a pdf referenceAttachment to its raw bytes via /content (no format=pdf)', async () => {
+    let formatPdfCalled = false;
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith('/attachments/aRefPdf')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.referenceAttachment', sourceUrl: 'https://contoso.sharepoint.com/sites/X/report.pdf' });
+      }
+      if (url.includes('/shares/u!')) {
+        return Response.json({ id: 'i-pdf', name: 'report.pdf', parentReference: { driveId: 'd1' } });
+      }
+      if (url.endsWith('/drives/d1/items/i-pdf/content')) {
+        return Response.json({ '@microsoft.graph.downloadUrl': 'https://cdn.example/report.pdf' });
+      }
+      if (url.includes('format=pdf')) {
+        formatPdfCalled = true;
+        return new Response(null, { status: 500 });
+      }
+      throw new Error(`unexpected ${url}`);
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-pdf'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aRefPdf' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual({ '@microsoft.graph.downloadUrl': 'https://cdn.example/report.pdf' });
+    expect(formatPdfCalled).toBe(false);
   });
 
   it('convert-mail-attachment-to-pdf resolves a referenceAttachment via /shares/{token}/driveItem and converts in place', async () => {

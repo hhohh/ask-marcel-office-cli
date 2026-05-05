@@ -4,8 +4,8 @@ import { err, ok } from '../../domain/result.ts';
 import type { GraphClient, GraphError } from '../../infra/graph-client.ts';
 import type { CommandMeta } from './command-types.ts';
 import { buildShareToken } from './sharepoint-link-extractor.ts';
-import { isPlainTextFilename } from './text-passthrough.ts';
 import { formatZodError } from './format-zod-error.ts';
+import { isPdfSource, isPlainTextFilename } from './text-passthrough.ts';
 
 const schema = z.object({
   messageId: z.string().min(1),
@@ -31,13 +31,16 @@ const convertFileAttachment = async (graph: GraphClient, attachment: { name?: st
   const contentBytes = attachment.contentBytes ?? '';
   const bytes = decodeBase64(contentBytes);
 
-  // Plain-text source: skip the upload-convert dance, return raw bytes.
-  if (isPlainTextFilename(name)) {
+  // Plain-text source OR pdf source: skip the upload-convert dance,
+  // return raw bytes. PDF is not in Graph's `format=pdf` input list
+  // (CDN responds 406 InputFormatNotSupported on pdf → pdf), and the
+  // user already has what they want — the raw PDF bytes.
+  if (isPlainTextFilename(name) || isPdfSource(name)) {
     return ok({
-      contentType: 'text/plain',
+      contentType: isPdfSource(name) ? 'application/pdf' : 'text/plain',
       size: bytes.byteLength,
       base64: contentBytes,
-      note: `pre-checked plain-text source (${name}); raw bytes returned without Graph conversion`,
+      note: `pre-checked source (${name}); raw bytes returned without Graph conversion`,
     });
   }
 
@@ -74,7 +77,7 @@ const convertReferenceAttachment = async (graph: GraphClient, attachment: { sour
   if (typeof driveId !== 'string' || typeof itemId !== 'string') {
     return err({ type: 'api_error', status: 500, message: 'resolved driveItem missing id or driveId' });
   }
-  if (isPlainTextFilename(name)) {
+  if (isPlainTextFilename(name) || isPdfSource(name)) {
     return graph.getBinary(`/drives/${driveId}/items/${itemId}/content`);
   }
   return graph.getBinary(`/drives/${driveId}/items/${itemId}/content?format=pdf`);
@@ -113,7 +116,7 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
 
 const meta: CommandMeta = {
   summary:
-    'Convert an Outlook mail attachment to PDF on the fly. Polymorphic on the attachment’s `@odata.type`: fileAttachment uploads the bytes to a temp folder under /me/drive (large files use Graph’s chunked upload session — no 4 MB ceiling), runs ?format=pdf, then deletes the temp item; referenceAttachment resolves via /shares/{token}/driveItem and runs ?format=pdf in place; plain-text source extensions short-circuit to a raw-bytes envelope on either path. itemAttachment (embedded mail/event/contact) is unsupported here — Graph rejects those source types — use convert-mail-attachment-to-markdown instead. Worst-case wall-clock for huge attachments is ~22 minutes (1 metadata GET + up-to-20 chunk PUTs + 1 convert GET + 1 cleanup DELETE, each capped at 60s).',
+    'Convert an Outlook mail attachment to PDF on the fly. Polymorphic on the attachment’s `@odata.type`: fileAttachment uploads the bytes to a temp folder under /me/drive (large files use Graph’s chunked upload session — no 4 MB ceiling), runs ?format=pdf, then deletes the temp item; referenceAttachment resolves via /shares/{token}/driveItem and runs ?format=pdf in place; plain-text source extensions and `pdf` sources short-circuit to a raw-bytes envelope on either path (Graph’s `?format=pdf` does not accept `pdf` as an input format — pdf attachments are returned as-is). itemAttachment (embedded mail/event/contact) is unsupported here — Graph rejects those source types — use convert-mail-attachment-to-markdown instead. Worst-case wall-clock for huge attachments is ~22 minutes (1 metadata GET + up-to-20 chunk PUTs + 1 convert GET + 1 cleanup DELETE, each capped at 60s).',
   category: 'mail',
   graphMethod: 'GET',
   graphPathTemplate: '/me/messages/{message-id}/attachments/{attachment-id}',

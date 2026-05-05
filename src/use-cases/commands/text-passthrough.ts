@@ -1,21 +1,34 @@
 /**
  * Microsoft Graph's `?format=pdf` / `?format=html` conversion accepts a
- * fixed set of source extensions (csv, doc, docx, odp, ods, odt, pot,
- * potm, potx, pps, ppsx, ppsxm, ppt, pptm, pptx, rtf, xls, xlsx). For
- * anything outside that whitelist Graph returns 4xx, which is a
- * cryptic failure mode for an LLM agent.
+ * fixed set of source extensions. For anything outside that whitelist
+ * Graph (or its downstream Office Online sandbox) returns a 4xx, which
+ * is a cryptic failure mode for an LLM agent.
  *
- * The conversion commands short-circuit on the extensions below: they
+ * The conversion commands short-circuit on the extensions below and
  * return the raw bytes instead of attempting (and wasting) a Graph
- * round-trip. Hardening #1 of the format-conversion plan.
+ * round-trip:
+ *
+ *   - PLAIN_TEXT_EXTENSIONS: extensions that are themselves plain text
+ *     (txt/md/json/yaml/etc.) — turning these through `?format=pdf` or
+ *     `?format=html` is meaningless; just return the bytes.
+ *
+ *   - `pdf`: the `*-as-pdf` commands ask Graph to convert TO pdf, but
+ *     `pdf` is NOT in Graph's `format=pdf` source-input list (verified
+ *     2026-05 against svc.ms; CDN responds 406 InputFormatNotSupported).
+ *     The user wanted a PDF and the source IS a PDF, so return its
+ *     bytes directly.
  */
 
 const PLAIN_TEXT_EXTENSIONS: ReadonlySet<string> = new Set(['txt', 'md', 'markdown', 'html', 'htm', 'json', 'xml', 'log', 'yaml', 'yml', 'css', 'js', 'ts', 'sh', 'sql']);
 
-const isPlainTextFilename = (name: string): boolean => {
+const extensionOf = (name: string): string => {
   const dot = name.lastIndexOf('.');
-  if (dot === -1) return false;
-  return PLAIN_TEXT_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
+  if (dot === -1) return '';
+  return name.slice(dot + 1).toLowerCase();
 };
 
-export { isPlainTextFilename, PLAIN_TEXT_EXTENSIONS };
+const isPlainTextFilename = (name: string): boolean => PLAIN_TEXT_EXTENSIONS.has(extensionOf(name));
+
+const isPdfSource = (name: string): boolean => extensionOf(name) === 'pdf';
+
+export { isPdfSource, isPlainTextFilename, PLAIN_TEXT_EXTENSIONS };
