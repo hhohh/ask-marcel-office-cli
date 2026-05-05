@@ -12,6 +12,8 @@ type GraphClient = {
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
+const REQUEST_TIMEOUT_MS = 60_000;
+
 const isJson = (contentType: string | null): boolean => contentType !== null && contentType.toLowerCase().includes('application/json');
 
 const isText = (contentType: string | null): boolean => {
@@ -27,6 +29,8 @@ const toBase64 = (bytes: Uint8Array): string => {
 };
 
 const networkErrorMessage = (e: unknown): string => {
+  if (e instanceof Error && e.name === 'TimeoutError') return 'request timed out after 60s';
+  if (e instanceof Error && e.name === 'AbortError') return 'request aborted';
   if (e instanceof Error) return e.message;
   if (typeof e === 'string') return e;
   return 'network request failed';
@@ -50,6 +54,7 @@ const createGraphClient = (auth: AuthManager, fetchFn: FetchFn = globalThis.fetc
       const res = await fetchFn(`https://graph.microsoft.com/v1.0${path}`, {
         method,
         headers: { ...headers.value, 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
       if (!res.ok) {
@@ -71,6 +76,7 @@ const createGraphClient = (auth: AuthManager, fetchFn: FetchFn = globalThis.fetc
         method: 'GET',
         headers: headers.value,
         redirect: 'manual',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
       if (res.status >= 300 && res.status < 400) {
         const location = res.headers.get('location');

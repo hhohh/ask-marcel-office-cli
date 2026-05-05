@@ -106,6 +106,45 @@ describe('graph client', () => {
     }
   });
 
+  it('maps a TimeoutError thrown by AbortSignal.timeout to "request timed out after 60s"', async () => {
+    const timeoutFetch: FetchFn = async () => {
+      const e = new Error('signal timed out');
+      e.name = 'TimeoutError';
+      throw e;
+    };
+    const client = createGraphClient(fakeAuth(), timeoutFetch);
+    const result = await client.get('/me');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'network_error') {
+      expect(result.error.message).toBe('request timed out after 60s');
+    }
+  });
+
+  it('maps an AbortError to "request aborted"', async () => {
+    const abortFetch: FetchFn = async () => {
+      const e = new Error('aborted');
+      e.name = 'AbortError';
+      throw e;
+    };
+    const client = createGraphClient(fakeAuth(), abortFetch);
+    const result = await client.get('/me');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'network_error') {
+      expect(result.error.message).toBe('request aborted');
+    }
+  });
+
+  it('passes an AbortSignal.timeout signal to fetch (verifies the timeout is wired in)', async () => {
+    let capturedSignal: AbortSignal | null | undefined = null;
+    const captureFetch: FetchFn = async (_url, init) => {
+      capturedSignal = init?.signal as AbortSignal | undefined;
+      return Response.json({ ok: true });
+    };
+    const client = createGraphClient(fakeAuth(), captureFetch);
+    await client.get('/me');
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+  });
+
   it('getBinary returns the Location header as @microsoft.graph.downloadUrl on a 302 redirect', async () => {
     const fetchFn: FetchFn = async () => new Response(null, { status: 302, headers: { location: 'https://cdn.example/signed?token=abc' } });
     const client = createGraphClient(fakeAuth(), fetchFn);
