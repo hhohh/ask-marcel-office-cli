@@ -1,4 +1,8 @@
 import type { Command } from './command-types.ts';
+import * as downloadDriveItemAsMarkdown from './download-drive-item-as-markdown.ts';
+import * as downloadDriveItemAsPdf from './download-drive-item-as-pdf.ts';
+import * as downloadDriveItemVersionAsMarkdown from './download-drive-item-version-as-markdown.ts';
+import * as downloadDriveItemVersionAsPdf from './download-drive-item-version-as-pdf.ts';
 import * as downloadDriveItemVersionContent from './download-drive-item-version-content.ts';
 import * as downloadOnedriveFileContent from './download-onedrive-file-content.ts';
 import * as getCalendarEvent from './get-calendar-event.ts';
@@ -13,6 +17,7 @@ import * as getMailAttachment from './get-mail-attachment.ts';
 import * as getMailMessage from './get-mail-message.ts';
 import * as getMailboxSettings from './get-mailbox-settings.ts';
 import * as getMyProfilePhoto from './get-my-profile-photo.ts';
+import * as getOnenotePageAsMarkdown from './get-onenote-page-as-markdown.ts';
 import * as getOnenotePageContent from './get-onenote-page-content.ts';
 import * as getPlannerBucket from './get-planner-bucket.ts';
 import * as getPlannerPlan from './get-planner-plan.ts';
@@ -83,6 +88,10 @@ const commands: Record<string, Command> = {
   'list-drive-item-permissions': listDriveItemPermissions,
   'list-drive-item-versions': listDriveItemVersions,
   'download-drive-item-version-content': downloadDriveItemVersionContent,
+  'download-drive-item-as-pdf': downloadDriveItemAsPdf,
+  'download-drive-item-as-markdown': downloadDriveItemAsMarkdown,
+  'download-drive-item-version-as-pdf': downloadDriveItemVersionAsPdf,
+  'download-drive-item-version-as-markdown': downloadDriveItemVersionAsMarkdown,
   'search-onedrive-files': searchOnedriveFiles,
   'search-my-documents': searchMyDocuments,
   'get-excel-range': getExcelRange,
@@ -130,6 +139,7 @@ const commands: Record<string, Command> = {
   'list-all-onenote-sections': listAllOnenoteSections,
   'list-onenote-section-pages': listOnenoteSectionPages,
   'get-onenote-page-content': getOnenotePageContent,
+  'get-onenote-page-as-markdown': getOnenotePageAsMarkdown,
   'search-onenote-pages': searchOnenotePages,
   'get-current-user': getCurrentUser,
   'get-my-profile-photo': getMyProfilePhoto,

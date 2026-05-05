@@ -12,7 +12,7 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
 };
 
 const meta: CommandMeta = {
-  summary: 'Get the HTML body of a single OneNote page. Returned in a JSON envelope so the HTML survives transport.',
+  summary: 'Get the raw HTML body of a single OneNote page. Returned in a JSON envelope so the HTML survives transport. For markdown output use `get-onenote-page-as-markdown`.',
   category: 'notes',
   graphMethod: 'GET',
   graphPathTemplate: '/me/onenote/pages/{onenote-page-id}/content',

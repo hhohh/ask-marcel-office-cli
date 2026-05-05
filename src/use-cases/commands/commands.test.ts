@@ -5,6 +5,10 @@ import { ok } from '../../domain/result.ts';
 import type { AuthManager } from '../../infra/auth.ts';
 import type { GraphError } from '../../infra/graph-client.ts';
 import { createGraphClient } from '../../infra/graph-client.ts';
+import * as downloadDriveItemAsMarkdown from './download-drive-item-as-markdown.ts';
+import * as downloadDriveItemAsPdf from './download-drive-item-as-pdf.ts';
+import * as downloadDriveItemVersionAsMarkdown from './download-drive-item-version-as-markdown.ts';
+import * as downloadDriveItemVersionAsPdf from './download-drive-item-version-as-pdf.ts';
 import * as downloadDriveItemVersionContent from './download-drive-item-version-content.ts';
 import * as downloadOnedriveFileContent from './download-onedrive-file-content.ts';
 import * as getCalendarEvent from './get-calendar-event.ts';
@@ -19,6 +23,7 @@ import * as getMailAttachment from './get-mail-attachment.ts';
 import * as getMailMessage from './get-mail-message.ts';
 import * as getMailboxSettings from './get-mailbox-settings.ts';
 import * as getMyProfilePhoto from './get-my-profile-photo.ts';
+import * as getOnenotePageAsMarkdown from './get-onenote-page-as-markdown.ts';
 import * as getOnenotePageContent from './get-onenote-page-content.ts';
 import * as getPlannerBucket from './get-planner-bucket.ts';
 import * as getPlannerPlan from './get-planner-plan.ts';
@@ -89,6 +94,10 @@ const cmdMap: Record<string, { execute: typeof listDrives.execute }> = {
   'list-drive-item-permissions': listDriveItemPermissions,
   'list-drive-item-versions': listDriveItemVersions,
   'download-drive-item-version-content': downloadDriveItemVersionContent,
+  'download-drive-item-as-pdf': downloadDriveItemAsPdf,
+  'download-drive-item-as-markdown': downloadDriveItemAsMarkdown,
+  'download-drive-item-version-as-pdf': downloadDriveItemVersionAsPdf,
+  'download-drive-item-version-as-markdown': downloadDriveItemVersionAsMarkdown,
   'search-onedrive-files': searchOnedriveFiles,
   'search-my-documents': searchMyDocuments,
   'get-excel-range': getExcelRange,
@@ -136,6 +145,7 @@ const cmdMap: Record<string, { execute: typeof listDrives.execute }> = {
   'list-all-onenote-sections': listAllOnenoteSections,
   'list-onenote-section-pages': listOnenoteSectionPages,
   'get-onenote-page-content': getOnenotePageContent,
+  'get-onenote-page-as-markdown': getOnenotePageAsMarkdown,
   'search-onenote-pages': searchOnenotePages,
   'get-current-user': getCurrentUser,
   'get-my-profile-photo': getMyProfilePhoto,
@@ -189,6 +199,43 @@ const capturedUrl = async (name: string, params: Record<string, string>): Promis
   const graph = createGraphClient(fakeAuth(), fetchFn);
   await cmd.execute(graph, params);
   return fetchFn.lastUrl ?? '';
+};
+
+/**
+ * Stateful fetch fake for multi-step commands (per the FIX #4 design):
+ * each handler matches the FIRST entry whose `urlPrefix` is a prefix
+ * of the request URL AND whose optional `method` matches. The matched
+ * handler is then CONSUMED — subsequent calls fall through to the
+ * next available handler. Unmatched calls throw a clear error rather
+ * than silently mismatching. `response` may be a static `Response` or
+ * a thunk so each call gets a fresh body / headers.
+ */
+type StagedHandler = {
+  readonly urlPrefix: string;
+  readonly method?: string;
+  readonly response: Response | (() => Response);
+};
+
+const stagedFetch = (handlers: ReadonlyArray<StagedHandler>): ((url: string, init?: RequestInit) => Promise<Response>) => {
+  const queue = handlers.map((h) => ({ ...h, consumed: false }));
+  return async (url, init) => {
+    const requestUrl = url.split('?')[0] ?? url;
+    const requestUrlWithQuery = url;
+    const method = init?.method ?? 'GET';
+    const idx = queue.findIndex((h) => {
+      if (h.consumed) return false;
+      if (h.method !== undefined && h.method !== method) return false;
+      const prefix = h.urlPrefix.split('?')[0] ?? h.urlPrefix;
+      const queryNeeded = h.urlPrefix.includes('?');
+      if (queryNeeded) return requestUrlWithQuery.startsWith(h.urlPrefix);
+      return requestUrl.startsWith(prefix);
+    });
+    if (idx === -1) throw new Error(`stagedFetch: unexpected ${method} ${url}`);
+    const handler = queue[idx];
+    if (!handler) throw new Error(`stagedFetch: corrupt queue at ${idx}`);
+    handler.consumed = true;
+    return typeof handler.response === 'function' ? handler.response() : handler.response.clone();
+  };
 };
 
 describe('commands', () => {
@@ -355,6 +402,254 @@ describe('commands', () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toEqual({ '@microsoft.graph.downloadUrl': 'https://cdn.example/v3' });
   });
+
+  it('download-drive-item-as-pdf converts an Office source via Graph ?format=pdf after the metadata pre-check', async () => {
+    const fetchFn = stagedFetch([
+      { urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1', method: 'GET', response: Response.json({ name: 'q3.docx', size: 9 }) },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1/content?format=pdf',
+        method: 'GET',
+        response: () => Response.json({ '@microsoft.graph.downloadUrl': 'https://cdn.example/q3.pdf' }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-as-pdf'];
+    if (!cmd) throw new Error('download-drive-item-as-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'i1' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual({ '@microsoft.graph.downloadUrl': 'https://cdn.example/q3.pdf' });
+  });
+
+  it('download-drive-item-as-pdf short-circuits to a raw bytes download for plain-text source extensions', async () => {
+    const fetchFn = stagedFetch([
+      { urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iText', method: 'GET', response: Response.json({ name: 'README.md', size: 4 }) },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iText/content',
+        method: 'GET',
+        response: () => new Response('hi', { status: 200, headers: { 'content-type': 'text/markdown' } }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-as-pdf'];
+    if (!cmd) throw new Error('download-drive-item-as-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'iText' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { contentType: string; text: string };
+      expect(v.contentType).toBe('text/markdown');
+      expect(v.text).toBe('hi');
+    }
+  });
+
+  it('download-drive-item-as-markdown converts Office HTML to markdown via the pipeline', async () => {
+    const fetchFn = stagedFetch([
+      { urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1', method: 'GET', response: Response.json({ name: 'q3.docx' }) },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1/content?format=html',
+        method: 'GET',
+        response: () => new Response('<h1>Q3</h1>', { status: 200, headers: { 'content-type': 'text/html' } }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-as-markdown'];
+    if (!cmd) throw new Error('download-drive-item-as-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'i1' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { contentType: string; text: string };
+      expect(v.contentType).toBe('text/markdown');
+      expect(v.text).toContain('# Q3');
+    }
+  });
+
+  it('download-drive-item-as-markdown short-circuits to raw download for plain-text source extensions', async () => {
+    const fetchFn = stagedFetch([
+      { urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iText', method: 'GET', response: Response.json({ name: 'notes.txt' }) },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iText/content',
+        method: 'GET',
+        response: () => new Response('plain', { status: 200, headers: { 'content-type': 'text/plain' } }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-as-markdown'];
+    if (!cmd) throw new Error('download-drive-item-as-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'iText' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { text: string };
+      expect(v.text).toBe('plain');
+    }
+  });
+
+  it('download-drive-item-as-pdf propagates an err from the metadata pre-fetch unchanged', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iMissing',
+        method: 'GET',
+        response: () => new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404, headers: { 'content-type': 'application/json' } }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-as-pdf'];
+    if (!cmd) throw new Error('download-drive-item-as-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'iMissing' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(404);
+    }
+  });
+
+  it('download-drive-item-version-as-pdf converts a non-current version through Graph ?format=pdf', async () => {
+    const fetchFn = stagedFetch([
+      { urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1', method: 'GET', response: Response.json({ name: 'budget.xlsx' }) },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1/versions/3.0/content?format=pdf',
+        method: 'GET',
+        response: () => Response.json({ '@microsoft.graph.downloadUrl': 'https://cdn.example/v3.pdf' }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-version-as-pdf'];
+    if (!cmd) throw new Error('download-drive-item-version-as-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'i1', versionId: '3.0' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual({ '@microsoft.graph.downloadUrl': 'https://cdn.example/v3.pdf' });
+  });
+
+  it('download-drive-item-version-as-markdown converts a non-current version HTML to markdown', async () => {
+    const fetchFn = stagedFetch([
+      { urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1', method: 'GET', response: Response.json({ name: 'budget.xlsx' }) },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1/versions/3.0/content?format=html',
+        method: 'GET',
+        response: () => new Response('<h2>v3</h2>', { status: 200, headers: { 'content-type': 'text/html' } }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-version-as-markdown'];
+    if (!cmd) throw new Error('download-drive-item-version-as-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'i1', versionId: '3.0' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { text: string };
+      expect(v.text).toContain('## v3');
+    }
+  });
+
+  it('download-drive-item-version-as-markdown short-circuits to raw download for plain-text source extensions', async () => {
+    const fetchFn = stagedFetch([
+      { urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iText', method: 'GET', response: Response.json({ name: 'notes.md' }) },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iText/versions/2.0/content',
+        method: 'GET',
+        response: () => new Response('# v2', { status: 200, headers: { 'content-type': 'text/markdown' } }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-version-as-markdown'];
+    if (!cmd) throw new Error('download-drive-item-version-as-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'iText', versionId: '2.0' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { text: string };
+      expect(v.text).toBe('# v2');
+    }
+  });
+
+  it('download-drive-item-version-as-pdf short-circuits to raw download for plain-text source extensions', async () => {
+    const fetchFn = stagedFetch([
+      { urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iText', method: 'GET', response: Response.json({ name: 'log.log' }) },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iText/versions/2.0/content',
+        method: 'GET',
+        response: () => new Response('line', { status: 200, headers: { 'content-type': 'text/plain' } }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-version-as-pdf'];
+    if (!cmd) throw new Error('download-drive-item-version-as-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'iText', versionId: '2.0' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { text: string };
+      expect(v.text).toBe('line');
+    }
+  });
+
+  it('download-drive-item-version-as-pdf propagates an err from the metadata pre-fetch unchanged', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iMissing',
+        method: 'GET',
+        response: () => new Response(JSON.stringify({ error: { message: 'gone' } }), { status: 404, headers: { 'content-type': 'application/json' } }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-version-as-pdf'];
+    if (!cmd) throw new Error('download-drive-item-version-as-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'iMissing', versionId: '2.0' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(404);
+    }
+  });
+
+  it('download-drive-item-version-as-markdown propagates an err from the metadata pre-fetch unchanged', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iMissing',
+        method: 'GET',
+        response: () => new Response(JSON.stringify({ error: { message: 'gone' } }), { status: 404, headers: { 'content-type': 'application/json' } }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-version-as-markdown'];
+    if (!cmd) throw new Error('download-drive-item-version-as-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'iMissing', versionId: '2.0' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(404);
+    }
+  });
+
+  it('download-drive-item-as-markdown propagates an err from the metadata pre-fetch unchanged', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/iMissing',
+        method: 'GET',
+        response: () => new Response(JSON.stringify({ error: { message: 'gone' } }), { status: 404, headers: { 'content-type': 'application/json' } }),
+      },
+    ]);
+    const cmd = cmdMap['download-drive-item-as-markdown'];
+    if (!cmd) throw new Error('download-drive-item-as-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'iMissing' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(404);
+    }
+  });
+
+  it('get-onenote-page-as-markdown turns Graph-returned HTML into a markdown envelope', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/me/onenote/pages/p1/content',
+        method: 'GET',
+        response: () => new Response('<h1>Meeting</h1>', { status: 200, headers: { 'content-type': 'text/html' } }),
+      },
+    ]);
+    const cmd = cmdMap['get-onenote-page-as-markdown'];
+    if (!cmd) throw new Error('get-onenote-page-as-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { onenotePageId: 'p1' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { contentType: string; text: string };
+      expect(v.contentType).toBe('text/markdown');
+      expect(v.text).toContain('# Meeting');
+    }
+  });
 });
 
 type CommandFixture = { readonly name: string; readonly params: Record<string, string> };
@@ -368,6 +663,8 @@ const allCommandFixtures: CommandFixture[] = [
   { name: 'list-drive-item-permissions', params: { driveId: 'd1', itemId: 'i1' } },
   { name: 'list-drive-item-versions', params: { driveId: 'd1', itemId: 'i1' } },
   { name: 'download-drive-item-version-content', params: { driveId: 'd1', itemId: 'i1', versionId: '3.0' } },
+  { name: 'download-drive-item-as-pdf', params: { driveId: 'd1', itemId: 'i1' } },
+  { name: 'download-drive-item-version-as-pdf', params: { driveId: 'd1', itemId: 'i1', versionId: '3.0' } },
   { name: 'search-onedrive-files', params: { driveId: 'd1', query: 'report' } },
   { name: 'search-my-documents', params: { query: 'budget' } },
   { name: 'get-excel-range', params: { driveId: 'd1', itemId: 'i1', worksheetId: 'ws1', address: 'A1' } },
@@ -461,6 +758,11 @@ describe('command schema rejection', () => {
     { name: 'get-team-channel', params: { teamId: 'tm1' } },
     { name: 'download-onedrive-file-content', params: { driveId: 'd1' } },
     { name: 'download-drive-item-version-content', params: { driveId: 'd1', itemId: 'i1' } },
+    { name: 'download-drive-item-as-pdf', params: { driveId: 'd1' } },
+    { name: 'download-drive-item-as-markdown', params: { driveId: 'd1' } },
+    { name: 'download-drive-item-version-as-pdf', params: { driveId: 'd1', itemId: 'i1' } },
+    { name: 'download-drive-item-version-as-markdown', params: { driveId: 'd1', itemId: 'i1' } },
+    { name: 'get-onenote-page-as-markdown', params: {} },
     { name: 'search-mail-messages', params: {} },
     { name: 'search-my-documents', params: {} },
     { name: 'get-calendar-view', params: {} },
@@ -498,6 +800,26 @@ const pathFixtures: Array<{ name: string; params: Record<string, string>; expect
     name: 'download-drive-item-version-content',
     params: { driveId: 'd1', itemId: 'i1', versionId: '3.0' },
     expectedPath: '/drives/d1/items/i1/versions/3.0/content',
+  },
+  {
+    name: 'download-drive-item-as-pdf',
+    params: { driveId: 'd1', itemId: 'i1' },
+    expectedPath: '/drives/d1/items/i1/content?format=pdf',
+  },
+  {
+    name: 'download-drive-item-as-markdown',
+    params: { driveId: 'd1', itemId: 'i1' },
+    expectedPath: '/drives/d1/items/i1/content?format=html',
+  },
+  {
+    name: 'download-drive-item-version-as-pdf',
+    params: { driveId: 'd1', itemId: 'i1', versionId: '3.0' },
+    expectedPath: '/drives/d1/items/i1/versions/3.0/content?format=pdf',
+  },
+  {
+    name: 'download-drive-item-version-as-markdown',
+    params: { driveId: 'd1', itemId: 'i1', versionId: '3.0' },
+    expectedPath: '/drives/d1/items/i1/versions/3.0/content?format=html',
   },
   { name: 'search-onedrive-files', params: { driveId: 'd1', query: 'report' }, expectedPath: "/drives/d1/search(q='report')" },
   { name: 'search-my-documents', params: { query: 'budget' }, expectedPath: "/me/drive/search(q='budget')" },
@@ -554,6 +876,7 @@ const pathFixtures: Array<{ name: string; params: Record<string, string>; expect
   { name: 'list-all-onenote-sections', params: {}, expectedPath: '/me/onenote/sections' },
   { name: 'list-onenote-section-pages', params: { onenoteSectionId: 's1' }, expectedPath: '/me/onenote/sections/s1/pages' },
   { name: 'get-onenote-page-content', params: { onenotePageId: 'p1' }, expectedPath: '/me/onenote/pages/p1/content' },
+  { name: 'get-onenote-page-as-markdown', params: { onenotePageId: 'p1' }, expectedPath: '/me/onenote/pages/p1/content' },
   { name: 'search-onenote-pages', params: { titleSubstring: 'meeting' }, expectedPath: "/me/onenote/pages?$filter=contains(title,'meeting')" },
   { name: 'get-current-user', params: {}, expectedPath: '/me' },
   { name: 'get-my-profile-photo', params: {}, expectedPath: '/me/photo/$value' },
