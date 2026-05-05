@@ -334,4 +334,241 @@ describe('graph client', () => {
       expect(c.body).toBe(JSON.stringify({ requests: [{ entityTypes: ['chatMessage'] }] }));
     }
   });
+
+  it('put with body ≤ 4 MiB takes the simple PUT path with :/content suffix', async () => {
+    const calls: Array<{ url: string; method?: string }> = [];
+    const fetchFn: FetchFn = async (url, init) => {
+      calls.push({ url, method: init?.method });
+      return Response.json({ id: 'i-new', name: 'small.bin' });
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.put('/me/drive/root:/.ask-marcel-temp/abc', new Uint8Array(1024), 'application/octet-stream');
+    expect(result.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.method).toBe('PUT');
+    expect(calls[0]?.url).toBe('https://graph.microsoft.com/v1.0/me/drive/root:/.ask-marcel-temp/abc:/content');
+  });
+
+  it('put with body 12 MiB takes the chunked-session path: createUploadSession + 3 chunk PUTs + final driveItem', async () => {
+    const total = 12 * 1024 * 1024;
+    const calls: Array<{ url: string; method?: string; range?: string }> = [];
+    let chunkCount = 0;
+    const fetchFn: FetchFn = async (url, init) => {
+      calls.push({ url, method: init?.method, range: (init?.headers as Record<string, string> | undefined)?.['Content-Range'] });
+      if (url.endsWith(':/createUploadSession')) {
+        return Response.json({ uploadUrl: 'https://contoso-my.sharepoint.com/upload-session/abc' });
+      }
+      chunkCount += 1;
+      if (chunkCount < 3) return new Response(JSON.stringify({ nextExpectedRanges: ['x-y'] }), { status: 202, headers: { 'content-type': 'application/json' } });
+      return Response.json({ id: 'i-big', name: 'big.bin', size: total });
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.put('/me/drive/root:/.ask-marcel-temp/big', new Uint8Array(total));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual({ id: 'i-big', name: 'big.bin', size: total });
+    expect(calls).toHaveLength(4);
+    expect(calls[0]?.url).toContain(':/createUploadSession');
+    expect(calls[1]?.range).toBe(`bytes 0-${5 * 1024 * 1024 - 1}/${total}`);
+    expect(calls[2]?.range).toBe(`bytes ${5 * 1024 * 1024}-${10 * 1024 * 1024 - 1}/${total}`);
+    expect(calls[3]?.range).toBe(`bytes ${10 * 1024 * 1024}-${total - 1}/${total}`);
+  });
+
+  it('put surfaces api_error and DELETEs the upload session when a chunk PUT fails', async () => {
+    const total = 6 * 1024 * 1024;
+    const calls: Array<{ url: string; method?: string }> = [];
+    let chunkCount = 0;
+    const fetchFn: FetchFn = async (url, init) => {
+      calls.push({ url, method: init?.method });
+      if (url.endsWith(':/createUploadSession')) {
+        return Response.json({ uploadUrl: 'https://contoso-my.sharepoint.com/upload-session/x' });
+      }
+      if (init?.method === 'DELETE') return new Response(null, { status: 204 });
+      chunkCount += 1;
+      if (chunkCount === 1) return new Response('boom', { status: 500 });
+      return Response.json({ id: 'should-not-finish' });
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.put('/me/drive/root:/.ask-marcel-temp/x', new Uint8Array(total));
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(500);
+      expect(result.error.message).toContain('chunk PUT failed at byte 0');
+    }
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(true);
+  });
+
+  it('put surfaces err from createUploadSession itself without attempting any chunk PUT', async () => {
+    const total = 6 * 1024 * 1024;
+    let chunkAttempts = 0;
+    const fetchFn: FetchFn = async (url, init) => {
+      if (url.endsWith(':/createUploadSession')) {
+        return new Response(JSON.stringify({ error: { message: 'no permission' } }), { status: 403, headers: { 'content-type': 'application/json' } });
+      }
+      if (init?.method === 'PUT') chunkAttempts += 1;
+      return Response.json({});
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.put('/me/drive/root:/.ask-marcel-temp/x', new Uint8Array(total));
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') expect(result.error.status).toBe(403);
+    expect(chunkAttempts).toBe(0);
+  });
+
+  it('put rejects an uploadUrl whose host is not on the Microsoft allow-list (Hardening #3)', async () => {
+    const total = 6 * 1024 * 1024;
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith(':/createUploadSession')) {
+        return Response.json({ uploadUrl: 'https://attacker.example.com/exfil' });
+      }
+      throw new Error('should not have been called');
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.put('/me/drive/root:/.ask-marcel-temp/x', new Uint8Array(total));
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'network_error') {
+      expect(result.error.message).toContain('not in Microsoft allow-list');
+    }
+  });
+
+  it('put surfaces api_error when createUploadSession returns no uploadUrl field', async () => {
+    const total = 6 * 1024 * 1024;
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith(':/createUploadSession')) return Response.json({ surprise: true });
+      throw new Error('should not have been called');
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.put('/me/drive/root:/.ask-marcel-temp/x', new Uint8Array(total));
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.message).toContain('no uploadUrl');
+    }
+  });
+
+  it('put rejects a malformed uploadUrl from createUploadSession as a network_error', async () => {
+    const total = 6 * 1024 * 1024;
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith(':/createUploadSession')) return Response.json({ uploadUrl: 'not-a-url' });
+      throw new Error('should not have been called');
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.put('/me/drive/root:/.ask-marcel-temp/x', new Uint8Array(total));
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'network_error') {
+      expect(result.error.message).toContain('invalid uploadUrl');
+    }
+  });
+
+  it('put cleans up the session and surfaces network_error when a chunk PUT throws', async () => {
+    const total = 6 * 1024 * 1024;
+    let cleanupCalled = false;
+    const fetchFn: FetchFn = async (url, init) => {
+      if (url.endsWith(':/createUploadSession')) {
+        return Response.json({ uploadUrl: 'https://contoso-my.sharepoint.com/upload-session/throw' });
+      }
+      if (init?.method === 'DELETE') {
+        cleanupCalled = true;
+        return new Response(null, { status: 204 });
+      }
+      throw new Error('disconnected');
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.put('/me/drive/root:/.ask-marcel-temp/x', new Uint8Array(total));
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'network_error') {
+      expect(result.error.message).toBe('disconnected');
+    }
+    expect(cleanupCalled).toBe(true);
+  });
+
+  it('put simple-path surfaces api_error when Graph rejects with a body containing error.message', async () => {
+    const fetchFn: FetchFn = async () => new Response(JSON.stringify({ error: { message: 'name conflict' } }), { status: 409, headers: { 'content-type': 'application/json' } });
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.put('/me/drive/root:/.ask-marcel-temp/x', new Uint8Array(100));
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(409);
+      expect(result.error.message).toBe('name conflict');
+    }
+  });
+
+  it('put simple-path wraps network errors via networkErrorMessage', async () => {
+    const fetchFn: FetchFn = async () => {
+      throw new Error('boom');
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.put('/me/drive/root:/.ask-marcel-temp/x', new Uint8Array(100));
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'network_error') {
+      expect(result.error.message).toBe('boom');
+    }
+  });
+
+  it('put surfaces auth_failed when the auth manager fails (simple path)', async () => {
+    const failingAuth: AuthManager = {
+      getAccessToken: async () => ({ ok: false, error: { type: 'auth_failed', message: 'no token' } }),
+      logout: async () => ok(undefined),
+    };
+    const client = createGraphClient(failingAuth);
+    const result = await client.put('/me/drive/root:/x', new Uint8Array(100));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.type).toBe('auth_failed');
+  });
+
+  it('delete returns ok on a 204 No Content response', async () => {
+    const fetchFn: FetchFn = async () => new Response(null, { status: 204 });
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.delete('/me/drive/items/i1');
+    expect(result.ok).toBe(true);
+  });
+
+  it('delete returns api_error on a non-2xx response', async () => {
+    const fetchFn: FetchFn = async () => new Response(JSON.stringify({ error: { message: 'cannot delete' } }), { status: 403, headers: { 'content-type': 'application/json' } });
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.delete('/me/drive/items/i1');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(403);
+      expect(result.error.message).toBe('cannot delete');
+    }
+  });
+
+  it('delete wraps thrown fetch errors as network_error', async () => {
+    const fetchFn: FetchFn = async () => {
+      throw new Error('reset');
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.delete('/me/drive/items/i1');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'network_error') {
+      expect(result.error.message).toBe('reset');
+    }
+  });
+
+  it('delete surfaces auth_failed when the auth manager fails', async () => {
+    const failingAuth: AuthManager = {
+      getAccessToken: async () => ({ ok: false, error: { type: 'auth_failed', message: 'no token' } }),
+      logout: async () => ok(undefined),
+    };
+    const client = createGraphClient(failingAuth);
+    const result = await client.delete('/me/drive/items/i1');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.type).toBe('auth_failed');
+  });
+
+  it('chunkedPut surfaces api_error when the final chunk returns 202 instead of 200/201 (truncated stream)', async () => {
+    const total = 5 * 1024 * 1024 + 100;
+    const fetchFn: FetchFn = async (url, init) => {
+      if (url.endsWith(':/createUploadSession')) {
+        return Response.json({ uploadUrl: 'https://contoso-my.sharepoint.com/session/abc' });
+      }
+      if (init?.method === 'DELETE') return new Response(null, { status: 204 });
+      return new Response(JSON.stringify({ nextExpectedRanges: ['x-y'] }), { status: 202, headers: { 'content-type': 'application/json' } });
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.put('/me/drive/root:/.ask-marcel-temp/x', new Uint8Array(total));
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.message).toContain('chunked upload completed without final response');
+    }
+  });
 });
