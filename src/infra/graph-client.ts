@@ -8,7 +8,25 @@ type GraphClient = {
   get: (path: string) => Promise<Result<unknown, GraphError>>;
   post: (path: string, body: unknown) => Promise<Result<unknown, GraphError>>;
   getBinary: (path: string) => Promise<Result<unknown, GraphError>>;
+  /**
+   * Auth-less fetch of an arbitrary URL whose host MUST be on the
+   * Microsoft allow-list. Used to follow `@microsoft.graph.downloadUrl`
+   * 302 redirects (CDN-signed URLs) that the format-conversion
+   * commands sometimes get back from Graph instead of inline bytes.
+   */
+  fetchUrl: (url: string) => Promise<Result<unknown, GraphError>>;
 };
+
+const ALLOWED_FETCH_URL_HOSTS: ReadonlyArray<RegExp> = [
+  /\.sharepoint\.com$/i,
+  /\.onedrive\.com$/i,
+  /\.live\.com$/i,
+  /\.officeapps\.live\.com$/i,
+  /\.1drv\.com$/i,
+  /^graph\.microsoft\.com$/i,
+];
+
+const isAllowedFetchUrlHost = (host: string): boolean => ALLOWED_FETCH_URL_HOSTS.some((re) => re.test(host));
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -99,10 +117,43 @@ const createGraphClient = (auth: AuthManager, fetchFn: FetchFn = globalThis.fetc
     }
   };
 
+  const fetchUrl = async (url: string): Promise<Result<unknown, GraphError>> => {
+    let host: string;
+    try {
+      host = new URL(url).host;
+    } catch {
+      return err({ type: 'network_error', message: `fetchUrl rejected: invalid URL ${url}` });
+    }
+    if (!isAllowedFetchUrlHost(host)) {
+      return err({ type: 'network_error', message: `fetchUrl rejected: host ${host} not in Microsoft allow-list` });
+    }
+
+    try {
+      const res = await fetchFn(url, {
+        method: 'GET',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        return err({ type: 'api_error', status: res.status, message: res.statusText });
+      }
+      const contentType = res.headers.get('content-type');
+      if (isJson(contentType)) return ok(await res.json());
+      if (isText(contentType)) {
+        const text = await res.text();
+        return ok({ contentType: contentType ?? 'text/plain', size: text.length, text });
+      }
+      const buffer = await res.arrayBuffer();
+      return ok({ contentType: contentType ?? 'application/octet-stream', size: buffer.byteLength, base64: toBase64(new Uint8Array(buffer)) });
+    } catch (e: unknown) {
+      return err({ type: 'network_error', message: networkErrorMessage(e) });
+    }
+  };
+
   return {
     get: (path) => request('GET', path),
     post: (path, body) => request('POST', path, body),
     getBinary,
+    fetchUrl,
   };
 };
 

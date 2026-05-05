@@ -42,12 +42,14 @@ const okGraph = (value: unknown): GraphClient => ({
   get: async () => ({ ok: true, value }),
   post: async () => ({ ok: true, value }),
   getBinary: async () => ({ ok: true, value }),
+  fetchUrl: async () => ({ ok: true, value }),
 });
 
 const errGraph = (error: GraphError): GraphClient => ({
   get: async () => ({ ok: false, error }),
   post: async () => ({ ok: false, error }),
   getBinary: async () => ({ ok: false, error }),
+  fetchUrl: async () => ({ ok: false, error }),
 });
 
 describe('buildCli command surface', () => {

@@ -145,6 +145,86 @@ describe('graph client', () => {
     expect(capturedSignal).toBeInstanceOf(AbortSignal);
   });
 
+  it('fetchUrl follows a CDN URL and returns the parsed JSON when content-type advertises JSON', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      expect(url).toBe('https://contoso.sharepoint.com/sites/x/file.json');
+      return Response.json({ kind: 'json' });
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.fetchUrl('https://contoso.sharepoint.com/sites/x/file.json');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual({ kind: 'json' });
+  });
+
+  it('fetchUrl returns text content as { contentType, size, text }', async () => {
+    const fetchFn: FetchFn = async () => new Response('<html>hi</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.fetchUrl('https://contoso.sharepoint.com/sites/x/page.html');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { contentType: string; size: number; text: string };
+      expect(v.contentType).toBe('text/html');
+      expect(v.text).toBe('<html>hi</html>');
+    }
+  });
+
+  it('fetchUrl returns binary content base64-encoded for non-text/non-JSON responses', async () => {
+    const bytes = new Uint8Array([0xff, 0xd8]);
+    const fetchFn: FetchFn = async () => new Response(bytes, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.fetchUrl('https://contoso.sharepoint.com/sites/x/photo.jpg');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { contentType: string; size: number; base64: string };
+      expect(v.contentType).toBe('image/jpeg');
+      expect(v.size).toBe(2);
+    }
+  });
+
+  it('fetchUrl rejects URLs whose host is not on the Microsoft allow-list (Hardening #3)', async () => {
+    const captureFetch: FetchFn = async () => {
+      throw new Error('should not have been called');
+    };
+    const client = createGraphClient(fakeAuth(), captureFetch);
+    const result = await client.fetchUrl('https://attacker.example.com/exfil');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'network_error') {
+      expect(result.error.message).toContain('not in Microsoft allow-list');
+    }
+  });
+
+  it('fetchUrl rejects unparseable URL strings as a clear network_error', async () => {
+    const client = createGraphClient(fakeAuth(), (async () => new Response()) as FetchFn);
+    const result = await client.fetchUrl('not-a-url');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'network_error') {
+      expect(result.error.message).toContain('invalid URL');
+    }
+  });
+
+  it('fetchUrl reports api_error on non-2xx responses with status text', async () => {
+    const fetchFn: FetchFn = async () => new Response('', { status: 503, statusText: 'Service Unavailable' });
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.fetchUrl('https://contoso.sharepoint.com/sites/x/page.html');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(503);
+      expect(result.error.message).toBe('Service Unavailable');
+    }
+  });
+
+  it('fetchUrl wraps network errors via the same networkErrorMessage helper', async () => {
+    const throwing: FetchFn = async () => {
+      throw new Error('socket reset');
+    };
+    const client = createGraphClient(fakeAuth(), throwing);
+    const result = await client.fetchUrl('https://contoso.sharepoint.com/sites/x/page.html');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'network_error') {
+      expect(result.error.message).toBe('socket reset');
+    }
+  });
+
   it('getBinary returns the Location header as @microsoft.graph.downloadUrl on a 302 redirect', async () => {
     const fetchFn: FetchFn = async () => new Response(null, { status: 302, headers: { location: 'https://cdn.example/signed?token=abc' } });
     const client = createGraphClient(fakeAuth(), fetchFn);
