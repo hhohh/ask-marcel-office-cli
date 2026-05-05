@@ -193,6 +193,14 @@ describe('graph client', () => {
     }
   });
 
+  it('fetchUrl accepts the *.svc.ms Office Online conversion CDN that Graph hands out for ?format=html', async () => {
+    const fetchFn: FetchFn = async () => new Response('<html>converted</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.fetchUrl('https://francecentral1-mediap.svc.ms/transform/htmlview?cs=fFNoYXJlUG9pbnQ');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect((result.value as { text: string }).text).toBe('<html>converted</html>');
+  });
+
   it('fetchUrl rejects unparseable URL strings as a clear network_error', async () => {
     const client = createGraphClient(fakeAuth(), (async () => new Response()) as FetchFn);
     const result = await client.fetchUrl('not-a-url');

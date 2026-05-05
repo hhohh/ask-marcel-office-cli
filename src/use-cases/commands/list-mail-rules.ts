@@ -6,7 +6,8 @@ const schema = z.object({ mailFolderId: z.string().min(1) });
 const { execute } = buildCommand((p) => `/me/mailFolders/${p.mailFolderId}/messageRules`, schema);
 
 const meta: CommandMeta = {
-  summary: 'List the inbox / folder rules attached to a single Outlook mail folder.',
+  summary:
+    'List the message rules on the Outlook Inbox. Microsoft Graph only supports message rules on the Inbox folder; passing any other folder ID (drafts, sentitems, archive, a custom folder) returns an `ErrorInvalidParameter` from Graph.',
   category: 'mail',
   graphMethod: 'GET',
   graphPathTemplate: '/me/mailFolders/{mail-folder-id}/messageRules',
@@ -16,7 +17,8 @@ const meta: CommandMeta = {
       name: 'mail-folder-id',
       key: 'mailFolderId',
       required: true,
-      description: 'mailFolder ID. Returned by `ask-marcel list-mail-folders`. Well-known names also work, e.g. `inbox`.',
+      description:
+        'mailFolder ID. In practice only `inbox` (the well-known name) or the resolved ID of the Inbox folder works — Graph rejects every other folder for messageRules.',
     },
   ],
   example: "ask-marcel list-mail-rules --mail-folder-id 'inbox'",

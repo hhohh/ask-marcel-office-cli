@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Result } from '../../domain/result.ts';
+import { err } from '../../domain/result.ts';
 import type { GraphClient, GraphError } from '../../infra/graph-client.ts';
 import type { CommandMeta } from './command-types.ts';
 import { isPlainTextFilename } from './text-passthrough.ts';
@@ -12,7 +13,7 @@ const schema = z.object({
 
 const execute = async (graph: GraphClient, params: Record<string, string>): Promise<Result<unknown, GraphError>> => {
   const parsed = schema.safeParse(params);
-  if (!parsed.success) throw new Error(`validation failed: ${parsed.error.message}`);
+  if (!parsed.success) return err({ type: 'validation_error', message: parsed.error.message });
   const { driveId, itemId, versionId } = parsed.data;
 
   // Pre-fetch the driveItem for its filename. Same pre-check as the

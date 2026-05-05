@@ -27,12 +27,9 @@ describe('presenter output', () => {
     expect(logger.calls.some((c) => c.event === 'output_rendered')).toBe(true);
   });
 
-  it('renders an error envelope to stderr and logs an error event with the message', async () => {
-    const logger = createLoggerFake();
-    const out = await captureStream('stderr', () => renderError('Authentication cancelled', logger));
+  it('renders an error envelope to stderr as exactly one line', async () => {
+    const out = await captureStream('stderr', () => renderError('Authentication cancelled'));
     expect(out.trim()).toBe(JSON.stringify({ error: 'Authentication cancelled' }));
-    const errorCall = logger.calls.find((c) => c.event === 'output_error');
-    expect(errorCall?.level).toBe('error');
-    expect(errorCall?.meta?.message).toBe('Authentication cancelled');
+    expect(out.split('\n').filter((line) => line.length > 0)).toHaveLength(1);
   });
 });

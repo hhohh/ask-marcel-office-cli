@@ -114,7 +114,7 @@ const convertItemAttachment = (attachment: { item?: Record<string, unknown> }): 
 
 const execute = async (graph: GraphClient, params: Record<string, string>): Promise<Result<unknown, GraphError>> => {
   const parsed = schema.safeParse(params);
-  if (!parsed.success) throw new Error(`validation failed: ${parsed.error.message}`);
+  if (!parsed.success) return err({ type: 'validation_error', message: parsed.error.message });
   const { messageId, attachmentId } = parsed.data;
 
   const fetched = await graph.get(`/me/messages/${messageId}/attachments/${attachmentId}`);

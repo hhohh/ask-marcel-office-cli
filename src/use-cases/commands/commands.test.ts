@@ -319,17 +319,14 @@ describe('commands', () => {
     if (result.ok) expect(result.value).toEqual({ value: [{ subject: 'page 2' }] });
   });
 
-  it('next-page rejects URLs that do not start with the Graph v1.0 prefix', async () => {
+  it('next-page rejects URLs that do not start with the Graph v1.0 prefix as a validation_error Result', async () => {
     const cmd = cmdMap['next-page'];
     if (!cmd) throw new Error('next-page not registered');
     const fetchFn = fakeFetch({ ok: true });
     const graph = createGraphClient(fakeAuth(), fetchFn);
-    try {
-      await cmd.execute(graph, { url: 'https://example.com/something' });
-      throw new Error('should have rejected');
-    } catch (e) {
-      expect((e as Error).message).toContain('validation failed:');
-    }
+    const result = await cmd.execute(graph, { url: 'https://example.com/something' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.type).toBe('validation_error');
   });
 
   it('get-excel-range returns cell values', async () => {
@@ -1509,15 +1506,13 @@ describe('command schema rejection', () => {
     { name: 'next-page', params: { url: 'https://example.com/foo' } },
   ];
 
-  it.each(rejectCases)('$name rejects missing required params', async ({ name, params }) => {
+  it.each(rejectCases)('$name rejects missing required params as a validation_error Result', async ({ name, params }) => {
     const cmd = cmdMap[name];
     const fetchFn = fakeFetch({ ok: true });
     const graph = createGraphClient(fakeAuth(), fetchFn);
-    try {
-      await cmd.execute(graph, params);
-    } catch (e) {
-      expect((e as Error).message).toContain('validation failed:');
-    }
+    const result = await cmd.execute(graph, params);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.type).toBe('validation_error');
   });
 });
 

@@ -207,4 +207,12 @@ describe('buildCli command surface', () => {
     expect(out).toContain('Unknown command');
     expect(out).toContain('this-is-not-a-real-command');
   });
+
+  it('points users at --help when `docs <lifecycle-command>` is invoked (login/logout/update/docs/help are not in the registry)', async () => {
+    const logger = createLoggerFake();
+    const cli = buildCli({ auth: okAuth(), graph: okGraph({}), logger, processRunner: createProcessRunnerFake() });
+    const out = await captureStream('stderr', () => cli.parseAsync(['node', 'ask-marcel', 'docs', 'login']));
+    expect(out).toContain('lifecycle command');
+    expect(out).toContain('ask-marcel login --help');
+  });
 });

@@ -5,8 +5,7 @@ const render = (data: unknown, logger: Logger): void => {
   process.stdout.write(`${JSON.stringify(data)}\n`);
 };
 
-const renderError = (message: string, logger: Logger): void => {
-  logger.error('output_error', { message });
+const renderError = (message: string): void => {
   process.stderr.write(`${JSON.stringify({ error: message })}\n`);
 };
 

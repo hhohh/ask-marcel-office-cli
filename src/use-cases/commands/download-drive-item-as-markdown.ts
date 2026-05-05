@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Result } from '../../domain/result.ts';
+import { err } from '../../domain/result.ts';
 import type { GraphClient, GraphError } from '../../infra/graph-client.ts';
 import type { CommandMeta } from './command-types.ts';
 import { convertToMarkdown } from './markdown-pipeline.ts';
@@ -9,7 +10,7 @@ const schema = z.object({ driveId: z.string().min(1), itemId: z.string().min(1) 
 
 const execute = async (graph: GraphClient, params: Record<string, string>): Promise<Result<unknown, GraphError>> => {
   const parsed = schema.safeParse(params);
-  if (!parsed.success) throw new Error(`validation failed: ${parsed.error.message}`);
+  if (!parsed.success) return err({ type: 'validation_error', message: parsed.error.message });
   const { driveId, itemId } = parsed.data;
 
   // Same pre-fetch pattern as the PDF variant — Graph `?format=html`

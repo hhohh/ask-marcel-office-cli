@@ -2,7 +2,11 @@ import type { Result } from '../domain/result.ts';
 import { err, ok } from '../domain/result.ts';
 import type { AuthManager } from '../infra/auth.ts';
 
-type GraphError = { type: 'api_error'; status: number; message: string } | { type: 'auth_failed'; message: string } | { type: 'network_error'; message: string };
+type GraphError =
+  | { type: 'api_error'; status: number; message: string }
+  | { type: 'auth_failed'; message: string }
+  | { type: 'network_error'; message: string }
+  | { type: 'validation_error'; message: string };
 
 type GraphClient = {
   get: (path: string) => Promise<Result<unknown, GraphError>>;
@@ -34,6 +38,7 @@ const ALLOWED_FETCH_URL_HOSTS: ReadonlyArray<RegExp> = [
   /\.officeapps\.live\.com$/i,
   /\.1drv\.com$/i,
   /^graph\.microsoft\.com$/i,
+  /\.svc\.ms$/i,
 ];
 
 const isAllowedFetchUrlHost = (host: string): boolean => ALLOWED_FETCH_URL_HOSTS.some((re) => re.test(host));

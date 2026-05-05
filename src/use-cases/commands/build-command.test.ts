@@ -14,9 +14,14 @@ const fakeGraph: GraphClient = {
 };
 
 describe('buildCommand', () => {
-  it('throws with descriptive message when schema validation fails', async () => {
+  it('returns err({ type: "validation_error" }) with the zod message when schema validation fails', async () => {
     const cmd = buildCommand((p) => `/items/${p.id}`, z.object({ id: z.string().min(1) }));
-    await expect(cmd.execute(fakeGraph, {})).rejects.toThrow('validation failed:');
+    const result = await cmd.execute(fakeGraph, {});
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.type).toBe('validation_error');
+      if (result.error.type === 'validation_error') expect(result.error.message).toContain('expected string, received undefined');
+    }
   });
 
   it('calls graph.get with the constructed path on valid params', async () => {

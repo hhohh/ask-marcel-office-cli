@@ -95,7 +95,7 @@ Microsoft Graph CLI — designed for LLM consumption via skills. Explicit comman
 | `list-mail-folder-messages` | List the messages inside a specific Outlook mail folder (Inbox, custom folder, etc.). | `--mail-folder-id` | `GET /me/mailFolders/{mail-folder-id}/messages` |
 | `list-mail-folders` | List the top-level mail folders in the signed-in user’s Outlook mailbox (Inbox, Sent Items, etc.). | _(none)_ | `GET /me/mailFolders` |
 | `list-mail-messages` | List the most recent messages from across the signed-in user’s entire Outlook mailbox (every folder including Sent, Archive, Junk; default sort `receivedDateTime` desc). Use `list-mail-folder-messages` to scope to a single folder such as Inbox. | _(none)_ | `GET /me/messages` |
-| `list-mail-rules` | List the inbox / folder rules attached to a single Outlook mail folder. | `--mail-folder-id` | `GET /me/mailFolders/{mail-folder-id}/messageRules` |
+| `list-mail-rules` | List the message rules on the Outlook Inbox. Microsoft Graph only supports message rules on the Inbox folder; passing any other folder ID (drafts, sentitems, archive, a custom folder) returns an `ErrorInvalidParameter` from Graph. | `--mail-folder-id` | `GET /me/mailFolders/{mail-folder-id}/messageRules` |
 | `search-mail-messages` | Search the signed-in user’s entire Outlook mailbox using KQL or free text. Results are ranked by Graph relevance. | `--query` | `GET /me/messages?$search="{query}"` |
 
 ### Notes (OneNote)

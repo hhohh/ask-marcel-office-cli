@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Result } from '../../domain/result.ts';
-import { ok } from '../../domain/result.ts';
+import { err, ok } from '../../domain/result.ts';
 import type { GraphClient, GraphError } from '../../infra/graph-client.ts';
 import type { CommandMeta } from './command-types.ts';
 import { buildShareToken, extractSharepointUrls } from './sharepoint-link-extractor.ts';
@@ -42,7 +42,7 @@ const resolveOne = async (graph: GraphClient, url: string): Promise<ResolvedLink
 
 const execute = async (graph: GraphClient, params: Record<string, string>): Promise<Result<LinkExtractionSummary, GraphError>> => {
   const parsed = schema.safeParse(params);
-  if (!parsed.success) throw new Error(`validation failed: ${parsed.error.message}`);
+  if (!parsed.success) return err({ type: 'validation_error', message: parsed.error.message });
   const { messageId } = parsed.data;
 
   // 1. Pull the mail subject + body.

@@ -27,7 +27,7 @@ const buildCli = (deps: BuildCliDeps): Command => {
   const program = new Command();
 
   const fail = (message: string): void => {
-    renderError(message, logger);
+    renderError(message);
     deps.onCommandError?.();
   };
 
@@ -99,6 +99,8 @@ const buildCli = (deps: BuildCliDeps): Command => {
     ].join('\n  ')
   );
 
+  const LIFECYCLE_COMMANDS: ReadonlySet<string> = new Set(['login', 'logout', 'update', 'docs', 'help']);
+
   program
     .command('docs')
     .description('Print Markdown docs for a single command (the same per-command page that ships in `docs/commands.json`).')
@@ -106,6 +108,10 @@ const buildCli = (deps: BuildCliDeps): Command => {
     .action((commandName: string) => {
       const result = renderSingleCommand(cmdRegistry, commandName);
       if (result.ok) process.stdout.write(`${result.value}\n`);
+      else if (LIFECYCLE_COMMANDS.has(commandName))
+        fail(
+          `"${commandName}" is a CLI lifecycle command — it has no Graph endpoint and is not in docs/commands.json. Run \`ask-marcel ${commandName} --help\` for its help text.`
+        );
       else fail(`Unknown command "${result.error.name}". Run \`ask-marcel --help\` to list every command.`);
     });
 
