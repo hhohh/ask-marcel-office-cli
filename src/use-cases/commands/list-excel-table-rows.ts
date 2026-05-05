@@ -18,6 +18,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel list-excel-table-rows --drive-id 'b!1234' --item-id '01XLSX' --table-id 'Table1'",
   responseShape: 'collection of Microsoft Graph `workbookTableRow` resources (each `values` is a 2D array) under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

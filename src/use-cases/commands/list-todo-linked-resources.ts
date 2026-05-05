@@ -17,6 +17,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel list-todo-linked-resources --todo-task-list-id 'AAMkAGI...' --todo-task-id 'AAMkABC...'",
   responseShape: 'collection of Microsoft Graph `linkedResource` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

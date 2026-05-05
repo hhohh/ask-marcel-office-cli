@@ -21,6 +21,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel list-mail-rules --mail-folder-id 'inbox'",
   responseShape: 'collection of Microsoft Graph `messageRule` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

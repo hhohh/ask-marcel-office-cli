@@ -11,7 +11,11 @@ export type CommandManifestEntry = {
   readonly example: string;
   readonly responseShape?: string;
   readonly bodyTemplate?: string;
+  readonly pagination?: true;
 };
+
+export const PAGINATION_HINT =
+  'Paginated by Microsoft Graph. The response may include `@odata.nextLink`; pass that URL to `next-page --url <link>` and repeat until the field is absent.';
 
 export type CommandManifest = {
   readonly package: string;
@@ -71,6 +75,7 @@ export const renderCommandMarkdown = (entry: CommandManifestEntry): string => {
     `- **Microsoft Learn:** ${entry.graphDocsUrl}`,
   ];
   if (entry.responseShape) lines.push(`- **Response:** ${entry.responseShape}`);
+  if (entry.pagination) lines.push(`- **Pagination:** ${PAGINATION_HINT}`);
   if (entry.options.length > 0) {
     lines.push('', '## Options', '');
     lines.push('| Flag | Description |', '|------|-------------|');

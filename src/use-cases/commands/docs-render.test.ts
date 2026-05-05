@@ -84,4 +84,17 @@ describe('renderCommandMarkdown', () => {
     const md = renderCommandMarkdown(listDrives);
     expect(md).not.toContain('**Response:**');
   });
+
+  it('renders a Pagination line that names the next-page command when the entry is paginated', () => {
+    const paginated: CommandManifestEntry = { ...listDrives, pagination: true };
+    const md = renderCommandMarkdown(paginated);
+    expect(md).toContain('**Pagination:**');
+    expect(md).toContain('@odata.nextLink');
+    expect(md).toContain('next-page --url');
+  });
+
+  it('omits the Pagination line when the entry is not paginated', () => {
+    const md = renderCommandMarkdown(listDrives);
+    expect(md).not.toContain('**Pagination:**');
+  });
 });

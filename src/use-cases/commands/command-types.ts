@@ -26,6 +26,7 @@ type CommandMeta = {
   readonly example: string;
   readonly responseShape?: string;
   readonly bodyTemplate?: string;
+  readonly pagination?: true;
 };
 
 type Command = {

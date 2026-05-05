@@ -17,6 +17,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel list-sharepoint-site-list-items --site-id 'contoso.sharepoint.com,1234,5678' --list-id 'Tasks'",
   responseShape: 'collection of Microsoft Graph `listItem` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

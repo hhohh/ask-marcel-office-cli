@@ -14,6 +14,7 @@ const meta: CommandMeta = {
   options: [{ name: 'site-id', key: 'siteId', required: true, description: 'SharePoint site ID. Returned by `ask-marcel search-sharepoint-sites`.' }],
   example: "ask-marcel list-sharepoint-site-drives --site-id 'contoso.sharepoint.com,1234,5678'",
   responseShape: 'collection of Microsoft Graph `drive` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

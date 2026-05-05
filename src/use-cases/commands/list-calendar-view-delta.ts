@@ -31,6 +31,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel list-calendar-view-delta --start-date-time '2026-04-01T00:00:00Z' --end-date-time '2026-05-01T00:00:00Z'",
   responseShape: 'collection of changed Microsoft Graph `event` occurrences under `value[]` plus an `@odata.deltaLink` token',
+  pagination: true,
 };
 
 export { execute, meta, schema };

@@ -22,6 +22,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel list-plan-tasks --planner-plan-id 'xqQg5FS2LkCp935s-FIFm5gAB6'",
   responseShape: 'collection of Microsoft Graph `plannerTask` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

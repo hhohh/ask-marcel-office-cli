@@ -23,6 +23,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel search-sharepoint-sites-by-name --query 'marketing'",
   responseShape: 'collection of Microsoft Graph `site` resources under `value[]` (up to 25)',
+  pagination: true,
 };
 
 export { execute, meta, schema };

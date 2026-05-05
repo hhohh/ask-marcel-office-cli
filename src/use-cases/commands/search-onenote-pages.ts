@@ -25,6 +25,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel search-onenote-pages --title-substring 'meeting notes'",
   responseShape: 'collection of Microsoft Graph `onenotePage` resources under `value[]` whose title contains the substring',
+  pagination: true,
 };
 
 export { execute, meta, schema };

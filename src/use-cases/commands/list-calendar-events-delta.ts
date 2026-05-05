@@ -15,6 +15,7 @@ const meta: CommandMeta = {
   options: [],
   example: 'ask-marcel list-calendar-events-delta',
   responseShape: 'collection of changed Microsoft Graph `event` resources under `value[]` plus an `@odata.deltaLink` token',
+  pagination: true,
 };
 
 export { execute, meta, schema };

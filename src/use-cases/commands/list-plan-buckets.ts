@@ -21,6 +21,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel list-plan-buckets --planner-plan-id 'xqQg5FS2LkCp935s-FIFm5gAB6'",
   responseShape: 'collection of Microsoft Graph `plannerBucket` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

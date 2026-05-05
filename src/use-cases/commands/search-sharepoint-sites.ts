@@ -14,6 +14,7 @@ const meta: CommandMeta = {
   options: [],
   example: 'ask-marcel search-sharepoint-sites',
   responseShape: 'collection of Microsoft Graph `site` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

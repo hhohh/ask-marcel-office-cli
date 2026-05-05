@@ -14,6 +14,7 @@ const meta: CommandMeta = {
   options: [{ name: 'team-id', key: 'teamId', required: true, description: 'Microsoft Teams team ID. Returned by `ask-marcel list-joined-teams`.' }],
   example: "ask-marcel list-team-channels --team-id 'abc-1234-...'",
   responseShape: 'collection of Microsoft Graph `channel` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

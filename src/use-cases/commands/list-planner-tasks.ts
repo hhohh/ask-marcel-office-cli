@@ -14,6 +14,7 @@ const meta: CommandMeta = {
   options: [],
   example: 'ask-marcel list-planner-tasks',
   responseShape: 'collection of Microsoft Graph `plannerTask` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

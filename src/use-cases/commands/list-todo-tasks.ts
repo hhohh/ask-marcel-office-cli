@@ -14,6 +14,7 @@ const meta: CommandMeta = {
   options: [{ name: 'todo-task-list-id', key: 'todoTaskListId', required: true, description: 'To Do task list ID. Returned by `ask-marcel list-todo-task-lists`.' }],
   example: "ask-marcel list-todo-tasks --todo-task-list-id 'AAMkAGI...'",
   responseShape: 'collection of Microsoft Graph `todoTask` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

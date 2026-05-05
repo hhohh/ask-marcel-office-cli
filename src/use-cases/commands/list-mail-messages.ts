@@ -15,6 +15,7 @@ const meta: CommandMeta = {
   options: [],
   example: 'ask-marcel list-mail-messages',
   responseShape: 'collection of Microsoft Graph `message` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

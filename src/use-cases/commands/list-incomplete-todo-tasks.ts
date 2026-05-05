@@ -23,6 +23,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel list-incomplete-todo-tasks --todo-task-list-id 'tasks'",
   responseShape: 'collection of Microsoft Graph `todoTask` resources under `value[]` where `status != "completed"`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

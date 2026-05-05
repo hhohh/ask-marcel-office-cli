@@ -22,6 +22,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel get-drive-delta --drive-id 'b!1234' --item-id '01ROOT'",
   responseShape: 'collection of changed Microsoft Graph `driveItem` resources under `value[]` plus an `@odata.deltaLink` token',
+  pagination: true,
 };
 
 export { execute, meta, schema };

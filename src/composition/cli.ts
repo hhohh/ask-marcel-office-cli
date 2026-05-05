@@ -3,7 +3,7 @@ import type { AuthManager } from '../infra/auth.ts';
 import type { GraphClient } from '../infra/graph-client.ts';
 import { render, renderError } from '../presenter/output.ts';
 import { renderSingleCommand } from '../use-cases/commands/docs.ts';
-import { CATEGORY_LABELS, CATEGORY_ORDER } from '../use-cases/commands/docs-render.ts';
+import { CATEGORY_LABELS, CATEGORY_ORDER, PAGINATION_HINT } from '../use-cases/commands/docs-render.ts';
 import { commands as cmdRegistry } from '../use-cases/commands/index.ts';
 import * as login from '../use-cases/commands/login.ts';
 import * as logout from '../use-cases/commands/logout.ts';
@@ -119,6 +119,7 @@ const buildCli = (deps: BuildCliDeps): Command => {
       const helpLines = [
         `\nGraph endpoint: ${cmd.meta.graphMethod} ${cmd.meta.graphPathTemplate}`,
         `Microsoft Learn: ${cmd.meta.graphDocsUrl}`,
+        ...(cmd.meta.pagination ? [`\nPagination: ${PAGINATION_HINT}`] : []),
         ...(cmd.meta.bodyTemplate ? [`\nRequest body:\n  ${cmd.meta.bodyTemplate}`] : []),
         `\nExample:\n  ${cmd.meta.example}`,
       ];

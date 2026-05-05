@@ -22,6 +22,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel search-mail-messages --query 'from:alice subject:Q3'",
   responseShape: 'collection of Microsoft Graph `message` resources under `value[]`, ranked by relevance',
+  pagination: true,
 };
 
 export { execute, meta, schema };

@@ -14,6 +14,7 @@ const meta: CommandMeta = {
   options: [],
   example: 'ask-marcel list-joined-teams',
   responseShape: 'collection of Microsoft Graph `team` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

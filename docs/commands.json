@@ -1,7 +1,7 @@
 {
   "package": "ask-marcel-office-cli",
-  "version": "0.6.0",
-  "generatedAt": "2026-05-05T06:35:52.920Z",
+  "version": "0.6.1",
+  "generatedAt": "2026-05-05T07:23:17.765Z",
   "commands": [
     {
       "name": "convert-mail-attachment-to-markdown",
@@ -324,7 +324,8 @@
         }
       ],
       "example": "ask-marcel get-drive-delta --drive-id 'b!1234' --item-id '01ROOT'",
-      "responseShape": "collection of changed Microsoft Graph `driveItem` resources under `value[]` plus an `@odata.deltaLink` token"
+      "responseShape": "collection of changed Microsoft Graph `driveItem` resources under `value[]` plus an `@odata.deltaLink` token",
+      "pagination": true
     },
     {
       "name": "get-drive-item",
@@ -855,7 +856,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/onenote-list-sections",
       "options": [],
       "example": "ask-marcel list-all-onenote-sections",
-      "responseShape": "collection of Microsoft Graph `onenoteSection` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `onenoteSection` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-calendar-event-instances",
@@ -891,7 +893,8 @@
         }
       ],
       "example": "ask-marcel list-calendar-event-instances --calendar-id 'AAMkAGI2THVS...' --event-id 'AAMkABC...' --start-date-time '2026-04-01T00:00:00Z' --end-date-time '2026-05-01T00:00:00Z'",
-      "responseShape": "collection of Microsoft Graph `event` resources (single occurrences) under `value[]`"
+      "responseShape": "collection of Microsoft Graph `event` resources (single occurrences) under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-calendar-events",
@@ -902,7 +905,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/user-list-events",
       "options": [],
       "example": "ask-marcel list-calendar-events",
-      "responseShape": "collection of Microsoft Graph `event` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `event` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-calendar-events-delta",
@@ -913,7 +917,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/event-delta",
       "options": [],
       "example": "ask-marcel list-calendar-events-delta",
-      "responseShape": "collection of changed Microsoft Graph `event` resources under `value[]` plus an `@odata.deltaLink` token"
+      "responseShape": "collection of changed Microsoft Graph `event` resources under `value[]` plus an `@odata.deltaLink` token",
+      "pagination": true
     },
     {
       "name": "list-calendar-view-delta",
@@ -937,7 +942,8 @@
         }
       ],
       "example": "ask-marcel list-calendar-view-delta --start-date-time '2026-04-01T00:00:00Z' --end-date-time '2026-05-01T00:00:00Z'",
-      "responseShape": "collection of changed Microsoft Graph `event` occurrences under `value[]` plus an `@odata.deltaLink` token"
+      "responseShape": "collection of changed Microsoft Graph `event` occurrences under `value[]` plus an `@odata.deltaLink` token",
+      "pagination": true
     },
     {
       "name": "list-calendars",
@@ -948,7 +954,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/user-list-calendars",
       "options": [],
       "example": "ask-marcel list-calendars",
-      "responseShape": "collection of Microsoft Graph `calendar` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `calendar` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-chat-members",
@@ -966,7 +973,8 @@
         }
       ],
       "example": "ask-marcel list-chat-members --chat-id '19:abc...@thread.v2'",
-      "responseShape": "collection of Microsoft Graph `conversationMember` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `conversationMember` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-drive-item-permissions",
@@ -990,7 +998,8 @@
         }
       ],
       "example": "ask-marcel list-drive-item-permissions --drive-id 'b!1234' --item-id '01ABC'",
-      "responseShape": "collection of Microsoft Graph `permission` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `permission` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-drive-item-versions",
@@ -1014,7 +1023,8 @@
         }
       ],
       "example": "ask-marcel list-drive-item-versions --drive-id 'b!1234' --item-id '01ABC'",
-      "responseShape": "collection of Microsoft Graph `driveItemVersion` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `driveItemVersion` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-drives",
@@ -1025,7 +1035,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/drive-list",
       "options": [],
       "example": "ask-marcel list-drives",
-      "responseShape": "collection of Microsoft Graph `drive` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `drive` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-excel-table-rows",
@@ -1055,7 +1066,8 @@
         }
       ],
       "example": "ask-marcel list-excel-table-rows --drive-id 'b!1234' --item-id '01XLSX' --table-id 'Table1'",
-      "responseShape": "collection of Microsoft Graph `workbookTableRow` resources (each `values` is a 2D array) under `value[]`"
+      "responseShape": "collection of Microsoft Graph `workbookTableRow` resources (each `values` is a 2D array) under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-excel-tables",
@@ -1079,7 +1091,8 @@
         }
       ],
       "example": "ask-marcel list-excel-tables --drive-id 'b!1234' --item-id '01XLSX'",
-      "responseShape": "collection of Microsoft Graph `workbookTable` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `workbookTable` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-excel-worksheets",
@@ -1103,7 +1116,8 @@
         }
       ],
       "example": "ask-marcel list-excel-worksheets --drive-id 'b!1234' --item-id '01XLSX'",
-      "responseShape": "collection of Microsoft Graph `worksheet` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `worksheet` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-folder-files",
@@ -1127,7 +1141,8 @@
         }
       ],
       "example": "ask-marcel list-folder-files --drive-id 'b!1234' --item-id '01ROOT'",
-      "responseShape": "collection of Microsoft Graph `driveItem` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `driveItem` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-incomplete-planner-tasks",
@@ -1138,7 +1153,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/planneruser-list-tasks",
       "options": [],
       "example": "ask-marcel list-incomplete-planner-tasks",
-      "responseShape": "collection of Microsoft Graph `plannerTask` resources under `value[]` where `percentComplete < 100`"
+      "responseShape": "collection of Microsoft Graph `plannerTask` resources under `value[]` where `percentComplete < 100`",
+      "pagination": true
     },
     {
       "name": "list-incomplete-todo-tasks",
@@ -1156,7 +1172,8 @@
         }
       ],
       "example": "ask-marcel list-incomplete-todo-tasks --todo-task-list-id 'tasks'",
-      "responseShape": "collection of Microsoft Graph `todoTask` resources under `value[]` where `status != \"completed\"`"
+      "responseShape": "collection of Microsoft Graph `todoTask` resources under `value[]` where `status != \"completed\"`",
+      "pagination": true
     },
     {
       "name": "list-joined-teams",
@@ -1167,7 +1184,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/user-list-joinedteams",
       "options": [],
       "example": "ask-marcel list-joined-teams",
-      "responseShape": "collection of Microsoft Graph `team` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `team` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-mail-attachments",
@@ -1185,7 +1203,8 @@
         }
       ],
       "example": "ask-marcel list-mail-attachments --message-id 'AAMkAGI2...'",
-      "responseShape": "collection of Microsoft Graph `attachment` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `attachment` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-mail-child-folders",
@@ -1203,7 +1222,8 @@
         }
       ],
       "example": "ask-marcel list-mail-child-folders --mail-folder-id 'inbox'",
-      "responseShape": "collection of Microsoft Graph `mailFolder` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `mailFolder` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-mail-folder-messages",
@@ -1221,7 +1241,8 @@
         }
       ],
       "example": "ask-marcel list-mail-folder-messages --mail-folder-id 'inbox'",
-      "responseShape": "collection of Microsoft Graph `message` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `message` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-mail-folders",
@@ -1232,7 +1253,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/user-list-mailfolders",
       "options": [],
       "example": "ask-marcel list-mail-folders",
-      "responseShape": "collection of Microsoft Graph `mailFolder` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `mailFolder` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-mail-messages",
@@ -1243,7 +1265,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/user-list-messages",
       "options": [],
       "example": "ask-marcel list-mail-messages",
-      "responseShape": "collection of Microsoft Graph `message` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `message` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-mail-rules",
@@ -1261,7 +1284,8 @@
         }
       ],
       "example": "ask-marcel list-mail-rules --mail-folder-id 'inbox'",
-      "responseShape": "collection of Microsoft Graph `messageRule` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `messageRule` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-onenote-notebook-sections",
@@ -1279,7 +1303,8 @@
         }
       ],
       "example": "ask-marcel list-onenote-notebook-sections --notebook-id '1-12abc...'",
-      "responseShape": "collection of Microsoft Graph `onenoteSection` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `onenoteSection` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-onenote-notebooks",
@@ -1290,7 +1315,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/onenote-list-notebooks",
       "options": [],
       "example": "ask-marcel list-onenote-notebooks",
-      "responseShape": "collection of Microsoft Graph `notebook` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `notebook` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-onenote-section-pages",
@@ -1308,7 +1334,8 @@
         }
       ],
       "example": "ask-marcel list-onenote-section-pages --onenote-section-id '1-abc...'",
-      "responseShape": "collection of Microsoft Graph `onenotePage` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `onenotePage` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-plan-buckets",
@@ -1326,7 +1353,8 @@
         }
       ],
       "example": "ask-marcel list-plan-buckets --planner-plan-id 'xqQg5FS2LkCp935s-FIFm5gAB6'",
-      "responseShape": "collection of Microsoft Graph `plannerBucket` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `plannerBucket` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-plan-tasks",
@@ -1344,7 +1372,8 @@
         }
       ],
       "example": "ask-marcel list-plan-tasks --planner-plan-id 'xqQg5FS2LkCp935s-FIFm5gAB6'",
-      "responseShape": "collection of Microsoft Graph `plannerTask` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `plannerTask` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-planner-plans",
@@ -1355,7 +1384,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/planneruser-list-plans",
       "options": [],
       "example": "ask-marcel list-planner-plans",
-      "responseShape": "collection of Microsoft Graph `plannerPlan` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `plannerPlan` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-planner-tasks",
@@ -1366,7 +1396,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/planneruser-list-tasks",
       "options": [],
       "example": "ask-marcel list-planner-tasks",
-      "responseShape": "collection of Microsoft Graph `plannerTask` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `plannerTask` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-sharepoint-site-drives",
@@ -1384,7 +1415,8 @@
         }
       ],
       "example": "ask-marcel list-sharepoint-site-drives --site-id 'contoso.sharepoint.com,1234,5678'",
-      "responseShape": "collection of Microsoft Graph `drive` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `drive` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-sharepoint-site-list-items",
@@ -1408,7 +1440,8 @@
         }
       ],
       "example": "ask-marcel list-sharepoint-site-list-items --site-id 'contoso.sharepoint.com,1234,5678' --list-id 'Tasks'",
-      "responseShape": "collection of Microsoft Graph `listItem` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `listItem` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-sharepoint-site-lists",
@@ -1426,7 +1459,8 @@
         }
       ],
       "example": "ask-marcel list-sharepoint-site-lists --site-id 'contoso.sharepoint.com,1234,5678'",
-      "responseShape": "collection of Microsoft Graph `list` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `list` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-specific-calendar-events",
@@ -1444,7 +1478,8 @@
         }
       ],
       "example": "ask-marcel list-specific-calendar-events --calendar-id 'AAMkAGI2THVS...'",
-      "responseShape": "collection of Microsoft Graph `event` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `event` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-team-channels",
@@ -1462,7 +1497,8 @@
         }
       ],
       "example": "ask-marcel list-team-channels --team-id 'abc-1234-...'",
-      "responseShape": "collection of Microsoft Graph `channel` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `channel` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-todo-linked-resources",
@@ -1486,7 +1522,8 @@
         }
       ],
       "example": "ask-marcel list-todo-linked-resources --todo-task-list-id 'AAMkAGI...' --todo-task-id 'AAMkABC...'",
-      "responseShape": "collection of Microsoft Graph `linkedResource` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `linkedResource` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-todo-task-lists",
@@ -1497,7 +1534,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/todo-list-lists",
       "options": [],
       "example": "ask-marcel list-todo-task-lists",
-      "responseShape": "collection of Microsoft Graph `todoTaskList` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `todoTaskList` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "list-todo-tasks",
@@ -1515,7 +1553,8 @@
         }
       ],
       "example": "ask-marcel list-todo-tasks --todo-task-list-id 'AAMkAGI...'",
-      "responseShape": "collection of Microsoft Graph `todoTask` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `todoTask` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "next-page",
@@ -1551,7 +1590,8 @@
         }
       ],
       "example": "ask-marcel search-mail-messages --query 'from:alice subject:Q3'",
-      "responseShape": "collection of Microsoft Graph `message` resources under `value[]`, ranked by relevance"
+      "responseShape": "collection of Microsoft Graph `message` resources under `value[]`, ranked by relevance",
+      "pagination": true
     },
     {
       "name": "search-my-documents",
@@ -1569,7 +1609,8 @@
         }
       ],
       "example": "ask-marcel search-my-documents --query 'q1 budget'",
-      "responseShape": "collection of Microsoft Graph `driveItem` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `driveItem` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "search-onedrive-files",
@@ -1593,7 +1634,8 @@
         }
       ],
       "example": "ask-marcel search-onedrive-files --drive-id 'b!1234' --query 'q1 budget'",
-      "responseShape": "collection of Microsoft Graph `driveItem` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `driveItem` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "search-onenote-pages",
@@ -1611,7 +1653,8 @@
         }
       ],
       "example": "ask-marcel search-onenote-pages --title-substring 'meeting notes'",
-      "responseShape": "collection of Microsoft Graph `onenotePage` resources under `value[]` whose title contains the substring"
+      "responseShape": "collection of Microsoft Graph `onenotePage` resources under `value[]` whose title contains the substring",
+      "pagination": true
     },
     {
       "name": "search-sharepoint-sites",
@@ -1622,7 +1665,8 @@
       "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/site-search",
       "options": [],
       "example": "ask-marcel search-sharepoint-sites",
-      "responseShape": "collection of Microsoft Graph `site` resources under `value[]`"
+      "responseShape": "collection of Microsoft Graph `site` resources under `value[]`",
+      "pagination": true
     },
     {
       "name": "search-sharepoint-sites-by-name",
@@ -1640,7 +1684,8 @@
         }
       ],
       "example": "ask-marcel search-sharepoint-sites-by-name --query 'marketing'",
-      "responseShape": "collection of Microsoft Graph `site` resources under `value[]` (up to 25)"
+      "responseShape": "collection of Microsoft Graph `site` resources under `value[]` (up to 25)",
+      "pagination": true
     }
   ]
 }

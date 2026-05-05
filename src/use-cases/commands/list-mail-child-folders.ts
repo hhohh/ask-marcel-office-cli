@@ -21,6 +21,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel list-mail-child-folders --mail-folder-id 'inbox'",
   responseShape: 'collection of Microsoft Graph `mailFolder` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

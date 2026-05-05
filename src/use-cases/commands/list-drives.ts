@@ -14,6 +14,7 @@ const meta: CommandMeta = {
   options: [],
   example: 'ask-marcel list-drives',
   responseShape: 'collection of Microsoft Graph `drive` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

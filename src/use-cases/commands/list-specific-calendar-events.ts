@@ -14,6 +14,7 @@ const meta: CommandMeta = {
   options: [{ name: 'calendar-id', key: 'calendarId', required: true, description: 'Calendar ID. Returned by `ask-marcel list-calendars`.' }],
   example: "ask-marcel list-specific-calendar-events --calendar-id 'AAMkAGI2THVS...'",
   responseShape: 'collection of Microsoft Graph `event` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

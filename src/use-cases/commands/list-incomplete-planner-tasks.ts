@@ -14,6 +14,7 @@ const meta: CommandMeta = {
   options: [],
   example: 'ask-marcel list-incomplete-planner-tasks',
   responseShape: 'collection of Microsoft Graph `plannerTask` resources under `value[]` where `percentComplete < 100`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

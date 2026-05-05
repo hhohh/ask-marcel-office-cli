@@ -17,6 +17,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel list-excel-worksheets --drive-id 'b!1234' --item-id '01XLSX'",
   responseShape: 'collection of Microsoft Graph `worksheet` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

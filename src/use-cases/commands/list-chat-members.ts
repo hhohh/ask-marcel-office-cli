@@ -26,6 +26,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel list-chat-members --chat-id '19:abc...@thread.v2'",
   responseShape: 'collection of Microsoft Graph `conversationMember` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

@@ -14,6 +14,7 @@ const meta: CommandMeta = {
   options: [],
   example: 'ask-marcel list-calendar-events',
   responseShape: 'collection of Microsoft Graph `event` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

@@ -14,6 +14,7 @@ const meta: CommandMeta = {
   options: [],
   example: 'ask-marcel list-all-onenote-sections',
   responseShape: 'collection of Microsoft Graph `onenoteSection` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };

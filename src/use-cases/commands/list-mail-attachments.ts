@@ -16,6 +16,7 @@ const meta: CommandMeta = {
   ],
   example: "ask-marcel list-mail-attachments --message-id 'AAMkAGI2...'",
   responseShape: 'collection of Microsoft Graph `attachment` resources under `value[]`',
+  pagination: true,
 };
 
 export { execute, meta, schema };
