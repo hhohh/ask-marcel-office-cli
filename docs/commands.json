@@ -1,8 +1,116 @@
 {
   "package": "ask-marcel-office-cli",
-  "version": "0.5.6",
-  "generatedAt": "2026-05-05T04:07:35.100Z",
+  "version": "0.5.7",
+  "generatedAt": "2026-05-05T05:35:21.041Z",
   "commands": [
+    {
+      "name": "download-drive-item-as-markdown",
+      "summary": "Download a OneDrive / SharePoint file converted to markdown. Graph converts the source to HTML on the fly (`?format=html`), then this CLI runs turndown over it locally to produce clean markdown. Source must be one of the Office formats Graph supports. For plain-text source extensions the command short-circuits and returns raw bytes instead. Worst-case wall-clock is roughly two 60s round-trips back-to-back.",
+      "category": "drive",
+      "graphMethod": "GET",
+      "graphPathTemplate": "/drives/{drive-id}/items/{item-id}/content?format=html",
+      "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/driveitem-get-content-format",
+      "options": [
+        {
+          "name": "drive-id",
+          "key": "driveId",
+          "required": true,
+          "description": "Microsoft Graph drive ID. Use `ask-marcel list-drives` for the personal OneDrive, or `ask-marcel list-sharepoint-site-drives --site-id <id>` for a SharePoint document library."
+        },
+        {
+          "name": "item-id",
+          "key": "itemId",
+          "required": true,
+          "description": "driveItem ID of the file to convert. Returned by `list-folder-files` or `search-onedrive-files`."
+        }
+      ],
+      "example": "ask-marcel download-drive-item-as-markdown --drive-id 'b!1234' --item-id '01ABC'",
+      "responseShape": "`{ contentType: \"text/markdown\", size: <chars>, text: \"...\" }` for the converted case, or `{ \"@microsoft.graph.downloadUrl\": \"...\" }` / `{ contentType, size, base64 }` raw envelope for plain-text source extensions."
+    },
+    {
+      "name": "download-drive-item-as-pdf",
+      "summary": "Download a OneDrive / SharePoint file converted to PDF on the fly by Graph (`?format=pdf`). Source must be one of the Office formats Graph supports — doc, docx, ppt, pptx, xls, xlsx, rtf, csv, odp, ods, odt, etc. The command pre-fetches the filename and short-circuits to a raw download for plain-text source extensions (txt, md, html, json, …) since Graph would reject those anyway. Worst-case wall-clock is two 60s round-trips back-to-back.",
+      "category": "drive",
+      "graphMethod": "GET",
+      "graphPathTemplate": "/drives/{drive-id}/items/{item-id}/content?format=pdf",
+      "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/driveitem-get-content-format",
+      "options": [
+        {
+          "name": "drive-id",
+          "key": "driveId",
+          "required": true,
+          "description": "Microsoft Graph drive ID. Use `ask-marcel list-drives` for the personal OneDrive, or `ask-marcel list-sharepoint-site-drives --site-id <id>` for a SharePoint document library."
+        },
+        {
+          "name": "item-id",
+          "key": "itemId",
+          "required": true,
+          "description": "driveItem ID of the file to convert. Returned by `list-folder-files` or `search-onedrive-files`."
+        }
+      ],
+      "example": "ask-marcel download-drive-item-as-pdf --drive-id 'b!1234' --item-id '01ABC'",
+      "responseShape": "`{ \"@microsoft.graph.downloadUrl\": \"...\" }` for the typical 302 case, or `{ contentType, size, base64 }` when Graph streams bytes directly. For unsupported source extensions, returns the raw file bytes (same envelope) without the PDF conversion step."
+    },
+    {
+      "name": "download-drive-item-version-as-markdown",
+      "summary": "Download a *historical version* of a OneDrive / SharePoint file converted to markdown. Graph converts the source version to HTML on the fly, then this CLI runs turndown over it. Same caveat as `download-drive-item-version-as-pdf`: Graph refuses to serve the current version through this endpoint — use `download-drive-item-as-markdown` for the current version. Plain-text source extensions short-circuit to a raw-bytes download.",
+      "category": "drive",
+      "graphMethod": "GET",
+      "graphPathTemplate": "/drives/{drive-id}/items/{item-id}/versions/{version-id}/content?format=html",
+      "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/driveitemversion-get-content",
+      "options": [
+        {
+          "name": "drive-id",
+          "key": "driveId",
+          "required": true,
+          "description": "Microsoft Graph drive ID. Use `ask-marcel list-drives` for the personal OneDrive, or `ask-marcel list-sharepoint-site-drives --site-id <id>` for a SharePoint document library."
+        },
+        {
+          "name": "item-id",
+          "key": "itemId",
+          "required": true,
+          "description": "driveItem ID of the file. Returned by `list-folder-files` or `search-onedrive-files`."
+        },
+        {
+          "name": "version-id",
+          "key": "versionId",
+          "required": true,
+          "description": "driveItemVersion ID. Returned by `ask-marcel list-drive-item-versions`. Pick a non-current version (the first entry is the live file and Graph rejects this endpoint for it)."
+        }
+      ],
+      "example": "ask-marcel download-drive-item-version-as-markdown --drive-id 'b!1234' --item-id '01ABC' --version-id '4.0'",
+      "responseShape": "`{ contentType: \"text/markdown\", size: <chars>, text: \"...\" }` for the converted case; raw-bytes envelope for plain-text source extensions."
+    },
+    {
+      "name": "download-drive-item-version-as-pdf",
+      "summary": "Download a *historical version* of a OneDrive / SharePoint file converted to PDF on the fly by Graph. Same shape as `download-drive-item-as-pdf` plus a `--version-id`. Graph refuses to serve the *current* version through this endpoint — for the current version use `download-drive-item-as-pdf` instead. Plain-text source extensions short-circuit to a raw-bytes download.",
+      "category": "drive",
+      "graphMethod": "GET",
+      "graphPathTemplate": "/drives/{drive-id}/items/{item-id}/versions/{version-id}/content?format=pdf",
+      "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/driveitemversion-get-content",
+      "options": [
+        {
+          "name": "drive-id",
+          "key": "driveId",
+          "required": true,
+          "description": "Microsoft Graph drive ID. Use `ask-marcel list-drives` for the personal OneDrive, or `ask-marcel list-sharepoint-site-drives --site-id <id>` for a SharePoint document library."
+        },
+        {
+          "name": "item-id",
+          "key": "itemId",
+          "required": true,
+          "description": "driveItem ID of the file. Returned by `list-folder-files` or `search-onedrive-files`."
+        },
+        {
+          "name": "version-id",
+          "key": "versionId",
+          "required": true,
+          "description": "driveItemVersion ID. Returned by `ask-marcel list-drive-item-versions`. Pick a non-current version — the first entry (e.g. `12.0`) is the live file and Graph rejects this endpoint for it; use `value[1]` or older."
+        }
+      ],
+      "example": "ask-marcel download-drive-item-version-as-pdf --drive-id 'b!1234' --item-id '01ABC' --version-id '4.0'",
+      "responseShape": "`{ \"@microsoft.graph.downloadUrl\": \"...\" }` for the typical 302 case, or `{ contentType, size, base64 }` when Graph streams bytes directly. Raw-bytes envelope for plain-text source extensions."
+    },
     {
       "name": "download-drive-item-version-content",
       "summary": "Download the binary content of a specific *non-current* historical version of a OneDrive / SharePoint file. Graph refuses to serve the current version through this endpoint with \"You cannot get the content of the current version\" — for the current version use `download-onedrive-file-content` instead. Same envelope as that command (302 → downloadUrl, or base64 bytes).",
@@ -307,8 +415,26 @@
       "responseShape": "`{ contentType: \"image/jpeg\", size: <bytes>, base64: \"<encoded>\" }` (or `{ \"@microsoft.graph.downloadUrl\": \"...\" }` when Graph returns a 302 redirect to a CDN URL)"
     },
     {
+      "name": "get-onenote-page-as-markdown",
+      "summary": "Get the body of a single OneNote page as markdown. Graph already returns OneNote pages as HTML, so this command runs that HTML through turndown locally. Inline image references in the page survive as Graph resource URLs (they are NOT base64-embedded — that is future work). For the raw HTML use `get-onenote-page-content`.",
+      "category": "notes",
+      "graphMethod": "GET",
+      "graphPathTemplate": "/me/onenote/pages/{onenote-page-id}/content",
+      "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/page-get",
+      "options": [
+        {
+          "name": "onenote-page-id",
+          "key": "onenotePageId",
+          "required": true,
+          "description": "OneNote page ID. Returned by `ask-marcel list-onenote-section-pages`."
+        }
+      ],
+      "example": "ask-marcel get-onenote-page-as-markdown --onenote-page-id '1-abc...'",
+      "responseShape": "`{ contentType: \"text/markdown\", size: <chars>, text: \"...\" }` — turndown-rendered markdown of the OneNote page body."
+    },
+    {
       "name": "get-onenote-page-content",
-      "summary": "Get the HTML body of a single OneNote page. Returned in a JSON envelope so the HTML survives transport.",
+      "summary": "Get the raw HTML body of a single OneNote page. Returned in a JSON envelope so the HTML survives transport. For markdown output use `get-onenote-page-as-markdown`.",
       "category": "notes",
       "graphMethod": "GET",
       "graphPathTemplate": "/me/onenote/pages/{onenote-page-id}/content",
