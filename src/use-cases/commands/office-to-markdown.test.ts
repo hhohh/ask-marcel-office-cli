@@ -140,14 +140,100 @@ describe('officeToMarkdown — extension dispatch', () => {
     }
   });
 
-  it('errs cleanly when getBinary returns an envelope with neither base64 nor text (defensive guard for unknown shapes)', async () => {
+  it('errs cleanly when neither getBinary nor fetchUrl produces base64 / text bytes (defensive guard for unknown shapes)', async () => {
     const graph = noopGraph({
       getBinary: async () => ok({ surprise: true }),
     });
     const result = await officeToMarkdown(graph, '/drives/d1/items/i1/content', 'report.docx');
     expect(result.ok).toBe(false);
     if (!result.ok && result.error.type === 'api_error') {
-      expect(result.error.message).toContain('unexpected getBinary envelope');
+      expect(result.error.message).toContain('unexpected envelope');
+    }
+  });
+
+  it('follows a `@microsoft.graph.downloadUrl` 302 redirect to fetch docx bytes (the real shape Graph returns for /content)', async () => {
+    const docxBytes = await buildSampleDocx();
+    const graph = noopGraph({
+      getBinary: async () => ok({ '@microsoft.graph.downloadUrl': 'https://contoso.sharepoint.com/cdn/abc.docx' }),
+      fetchUrl: async (url) => {
+        expect(url).toBe('https://contoso.sharepoint.com/cdn/abc.docx');
+        return ok({ contentType: 'application/octet-stream', size: docxBytes.byteLength, base64: toBase64(docxBytes) });
+      },
+    });
+    const result = await officeToMarkdown(graph, '/drives/d1/items/i1/content', 'report.docx');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const env = result.value as { contentType: string; text: string };
+      expect(env.contentType).toBe('text/markdown');
+      expect(env.text).toContain('# Sample Heading');
+    }
+  });
+
+  it('follows a `@microsoft.graph.downloadUrl` 302 redirect to fetch xlsx bytes', async () => {
+    const xlsxBytes = buildSampleXlsx();
+    const graph = noopGraph({
+      getBinary: async () => ok({ '@microsoft.graph.downloadUrl': 'https://contoso.sharepoint.com/cdn/data.xlsx' }),
+      fetchUrl: async () => ok({ contentType: 'application/octet-stream', size: xlsxBytes.byteLength, base64: toBase64(xlsxBytes) }),
+    });
+    const result = await officeToMarkdown(graph, '/drives/d1/items/i1/content', 'data.xlsx');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const env = result.value as { text: string };
+      expect(env.text).toContain('## Sheet1');
+    }
+  });
+
+  it('propagates an err from fetchUrl when following the downloadUrl redirect fails', async () => {
+    const graph = noopGraph({
+      getBinary: async () => ok({ '@microsoft.graph.downloadUrl': 'https://contoso.sharepoint.com/cdn/x' }),
+      fetchUrl: async () => ({ ok: false, error: { type: 'network_error' as const, message: 'socket reset' } }),
+    });
+    const result = await officeToMarkdown(graph, '/drives/d1/items/i1/content', 'report.docx');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'network_error') {
+      expect(result.error.message).toBe('socket reset');
+    }
+  });
+
+  it('routes csv through csvToMarkdownTable (real markdown table) — follows the 302 redirect and decodes as text', async () => {
+    const csv = 'Name,Score\nAlice,42\nBob,7';
+    const graph = noopGraph({
+      getBinary: async () => ok({ '@microsoft.graph.downloadUrl': 'https://contoso.sharepoint.com/cdn/data.csv' }),
+      fetchUrl: async () => ok({ contentType: 'text/csv', size: csv.length, text: csv }),
+    });
+    const result = await officeToMarkdown(graph, '/drives/d1/items/i1/content', 'data.csv');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const env = result.value as { contentType: string; text: string };
+      expect(env.contentType).toBe('text/markdown');
+      expect(env.text).toContain('| Name | Score |');
+      expect(env.text).toContain('| Alice | 42 |');
+    }
+  });
+
+  it('routes csv through csvToMarkdownTable when Graph returns the bytes inline (no 302) by decoding base64', async () => {
+    const csv = 'a,b\n1,2';
+    const csvBytes = new TextEncoder().encode(csv);
+    const graph = noopGraph({
+      getBinary: async () => ok({ contentType: 'text/csv', size: csvBytes.byteLength, base64: toBase64(csvBytes) }),
+    });
+    const result = await officeToMarkdown(graph, '/drives/d1/items/i1/content', 'data.csv');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const env = result.value as { text: string };
+      expect(env.text).toContain('| a | b |');
+      expect(env.text).toContain('| 1 | 2 |');
+    }
+  });
+
+  it('propagates getBinary api_error from the csv path', async () => {
+    const graph = noopGraph({
+      getBinary: async () => ({ ok: false, error: { type: 'api_error' as const, status: 403, message: 'forbidden' } }),
+    });
+    const result = await officeToMarkdown(graph, '/drives/d1/items/i1/content', 'data.csv');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(403);
     }
   });
 

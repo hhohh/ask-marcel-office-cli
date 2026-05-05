@@ -1,25 +1,25 @@
 import type { Result } from '../../domain/result.ts';
-import { err } from '../../domain/result.ts';
+import { err, ok } from '../../domain/result.ts';
 import type { GraphClient, GraphError } from '../../infra/graph-client.ts';
 import { docxToMarkdown } from './docx-to-markdown.ts';
 import { convertToMarkdown } from './markdown-pipeline.ts';
 import { isPlainTextFilename } from './text-passthrough.ts';
-import { xlsxToMarkdown } from './xlsx-to-markdown.ts';
+import { csvToMarkdownTable, xlsxToMarkdown } from './xlsx-to-markdown.ts';
 
 /**
  * Strategy dispatcher for `*-as-markdown` commands. Picks the right
  * conversion path based on the file extension and routes through it:
  *
- * - plain-text   → raw bytes envelope (Graph getBinary, no conversion)
- * - docx         → mammoth → turndown
- * - xlsx         → sheetjs → markdown table per sheet
- * - loop / fluid / wbtx / whiteboard → existing Graph ?format=html
- *                                      pipeline (the only inputs Graph
- *                                      HTML conversion actually accepts)
+ * - plain-text (txt/md/json/yaml/etc.)  → raw bytes envelope, no conversion
+ * - csv                                 → csvToMarkdownTable (markdown table)
+ * - docx                                → mammoth → turndown
+ * - xlsx                                → sheetjs → markdown table per sheet
+ * - loop / fluid / wbtx / whiteboard    → existing Graph ?format=html
+ *                                         pipeline (the only inputs Graph
+ *                                         HTML conversion actually accepts)
  * - everything else (pptx, pdf, rtf, odt, …) → err pointing at the
  *                                              corresponding *-as-pdf
- *                                              command (which accepts
- *                                              38 input extensions)
+ *                                              command (38 input extensions)
  */
 
 const HTML_FORMAT_INPUTS: ReadonlySet<string> = new Set(['loop', 'fluid', 'wbtx', 'whiteboard']);
@@ -36,47 +36,80 @@ const extensionOf = (filename: string): string => {
   return filename.slice(dot + 1).toLowerCase();
 };
 
+/**
+ * Real Graph responses for `/drives/{id}/items/{id}/content` are 302
+ * redirects to a CDN URL. `getBinary` captures that and returns
+ * `{ '@microsoft.graph.downloadUrl': '...' }` — NOT inline bytes.
+ * To actually get the bytes we have to follow the URL via `fetchUrl`.
+ *
+ * Inline-bytes envelopes (`{ base64 }` / `{ text }`) only happen when
+ * Graph serves the bytes directly without redirecting (rare, e.g. very
+ * small files in some tenants). The decoder handles both cases.
+ */
+const fetchRawBytes = async (graph: GraphClient, contentPath: string): Promise<Result<Uint8Array, GraphError>> => {
+  const initial = await graph.getBinary(contentPath);
+  if (!initial.ok) return initial;
+  const value = initial.value as Record<string, unknown>;
+
+  const downloadUrl = value['@microsoft.graph.downloadUrl'];
+  if (typeof downloadUrl === 'string') {
+    const followed = await graph.fetchUrl(downloadUrl);
+    if (!followed.ok) return followed;
+    return decodeBlobBytes(followed.value as Record<string, unknown>);
+  }
+  return decodeBlobBytes(value);
+};
+
+const decodeBlobBytes = (blob: Record<string, unknown>): Result<Uint8Array, GraphError> => {
+  const b64 = blob['base64'];
+  if (typeof b64 === 'string') {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return ok(bytes);
+  }
+  const text = blob['text'];
+  if (typeof text === 'string') {
+    return ok(new TextEncoder().encode(text));
+  }
+  return err({ type: 'api_error', status: 500, message: 'unexpected envelope: response had no @microsoft.graph.downloadUrl, no base64 bytes, and no text body' });
+};
+
 const officeToMarkdown = async (graph: GraphClient, contentPath: string, filename: string): Promise<Result<unknown, GraphError>> => {
   if (isPlainTextFilename(filename)) {
     return graph.getBinary(contentPath);
   }
   const ext = extensionOf(filename);
+
+  if (ext === 'csv') {
+    const bytes = await fetchRawBytes(graph, contentPath);
+    if (!bytes.ok) return bytes;
+    const csv = new TextDecoder().decode(bytes.value);
+    const md = csvToMarkdownTable(csv);
+    return ok({ contentType: 'text/markdown', size: md.length, text: md });
+  }
+
   if (ext === 'docx') {
-    const bytes = await graph.getBinary(contentPath);
+    const bytes = await fetchRawBytes(graph, contentPath);
     if (!bytes.ok) return bytes;
-    const blob = bytes.value as { base64?: string; text?: string };
-    const raw = decodeRawBytes(blob);
-    if (!raw.ok) return raw;
-    return docxToMarkdown(raw.value);
+    return docxToMarkdown(bytes.value);
   }
+
   if (ext === 'xlsx') {
-    const bytes = await graph.getBinary(contentPath);
+    const bytes = await fetchRawBytes(graph, contentPath);
     if (!bytes.ok) return bytes;
-    const blob = bytes.value as { base64?: string; text?: string };
-    const raw = decodeRawBytes(blob);
-    if (!raw.ok) return raw;
-    return xlsxToMarkdown(raw.value);
+    return xlsxToMarkdown(bytes.value);
   }
+
   if (HTML_FORMAT_INPUTS.has(ext)) {
     return convertToMarkdown(graph, `${contentPath}?format=html`);
   }
+
   if (ext === 'pptx') {
     return err({ type: 'api_error', status: 415, message: PPTX_HINT });
   }
-  return err({ type: 'api_error', status: 415, message: GENERIC_HINT(ext === '' ? '<no-extension>' : ext) });
-};
 
-const decodeRawBytes = (blob: { base64?: string; text?: string }): Result<Uint8Array, GraphError> => {
-  if (typeof blob.base64 === 'string') {
-    const binary = atob(blob.base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-    return { ok: true, value: bytes };
-  }
-  if (typeof blob.text === 'string') {
-    return { ok: true, value: new TextEncoder().encode(blob.text) };
-  }
-  return err({ type: 'api_error', status: 500, message: 'unexpected getBinary envelope: missing both base64 and text fields' });
+  return err({ type: 'api_error', status: 415, message: GENERIC_HINT(ext === '' ? '<no-extension>' : ext) });
 };
 
 export { officeToMarkdown };
