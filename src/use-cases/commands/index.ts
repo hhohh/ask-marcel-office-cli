@@ -77,6 +77,7 @@ import * as searchMyDocuments from './search-my-documents.ts';
 import * as searchOnedriveFiles from './search-onedrive-files.ts';
 import * as searchOnenotePages from './search-onenote-pages.ts';
 import * as searchSharepointSitesByName from './search-sharepoint-sites-by-name.ts';
+import * as extractSharepointLinksInMail from './extract-sharepoint-links-in-mail.ts';
 import * as searchSharepointSites from './search-sharepoint-sites.ts';
 
 const commands: Record<string, Command> = {
@@ -134,6 +135,7 @@ const commands: Record<string, Command> = {
   'list-mail-rules': listMailRules,
   'get-mailbox-settings': getMailboxSettings,
   'search-mail-messages': searchMailMessages,
+  'extract-sharepoint-links-in-mail': extractSharepointLinksInMail,
   'list-onenote-notebooks': listOnenoteNotebooks,
   'list-onenote-notebook-sections': listOnenoteNotebookSections,
   'list-all-onenote-sections': listAllOnenoteSections,

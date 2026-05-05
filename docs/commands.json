@@ -1,7 +1,7 @@
 {
   "package": "ask-marcel-office-cli",
-  "version": "0.5.7",
-  "generatedAt": "2026-05-05T05:35:21.041Z",
+  "version": "0.5.8",
+  "generatedAt": "2026-05-05T05:51:06.595Z",
   "commands": [
     {
       "name": "download-drive-item-as-markdown",
@@ -164,6 +164,24 @@
       ],
       "example": "ask-marcel download-onedrive-file-content --drive-id 'b!1234' --item-id '01ABC'",
       "responseShape": "`{ \"@microsoft.graph.downloadUrl\": \"...\" }` for the typical 302 case, or `{ contentType, size, base64 }` when Graph streams bytes directly"
+    },
+    {
+      "name": "extract-sharepoint-links-in-mail",
+      "summary": "Find every `*.sharepoint.com` URL in the body of a single Outlook email and resolve each one to its driveItem (driveId, itemId, name, webUrl) so the agent can feed those into `download-drive-item-as-pdf` / `-as-markdown` etc. Read-only — no conversion happens here. Capped at 25 unique URLs per call to bound fan-out (returns `truncated: true` and `skippedCount` when the body has more); duplicate URLs are deduplicated. Per-link errors are captured inside each entry instead of failing the whole call.",
+      "category": "mail",
+      "graphMethod": "GET",
+      "graphPathTemplate": "/me/messages/{message-id}",
+      "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/message-get",
+      "options": [
+        {
+          "name": "message-id",
+          "key": "messageId",
+          "required": true,
+          "description": "Outlook message ID. Returned by `list-mail-messages` or `list-mail-folder-messages`."
+        }
+      ],
+      "example": "ask-marcel extract-sharepoint-links-in-mail --message-id 'AAMkADk0...'",
+      "responseShape": "`{ messageId, subject, links: [{ url, driveId, itemId, name, webUrl } | { url, error }], truncated, skippedCount }` — one entry per unique SharePoint URL found in the body, ordered by first occurrence."
     },
     {
       "name": "get-calendar-event",

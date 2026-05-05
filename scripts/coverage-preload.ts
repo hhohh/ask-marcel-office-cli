@@ -88,6 +88,8 @@ import '../src/use-cases/commands/html-to-markdown.ts';
 import '../src/use-cases/commands/inline-image-embedder.ts';
 import '../src/use-cases/commands/markdown-pipeline.ts';
 import '../src/use-cases/commands/text-passthrough.ts';
+import '../src/use-cases/commands/sharepoint-link-extractor.ts';
+import '../src/use-cases/commands/extract-sharepoint-links-in-mail.ts';
 import '../src/use-cases/commands/get-current-user.ts';
 import '../src/use-cases/commands/get-my-profile-photo.ts';
 import '../src/use-cases/commands/list-calendar-events.ts';

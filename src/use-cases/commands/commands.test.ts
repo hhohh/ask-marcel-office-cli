@@ -83,6 +83,7 @@ import * as searchMyDocuments from './search-my-documents.ts';
 import * as searchOnedriveFiles from './search-onedrive-files.ts';
 import * as searchOnenotePages from './search-onenote-pages.ts';
 import * as searchSharepointSitesByName from './search-sharepoint-sites-by-name.ts';
+import * as extractSharepointLinksInMail from './extract-sharepoint-links-in-mail.ts';
 import * as searchSharepointSites from './search-sharepoint-sites.ts';
 
 const cmdMap: Record<string, { execute: typeof listDrives.execute }> = {
@@ -140,6 +141,7 @@ const cmdMap: Record<string, { execute: typeof listDrives.execute }> = {
   'list-mail-rules': listMailRules,
   'get-mailbox-settings': getMailboxSettings,
   'search-mail-messages': searchMailMessages,
+  'extract-sharepoint-links-in-mail': extractSharepointLinksInMail,
   'list-onenote-notebooks': listOnenoteNotebooks,
   'list-onenote-notebook-sections': listOnenoteNotebookSections,
   'list-all-onenote-sections': listAllOnenoteSections,
@@ -631,6 +633,203 @@ describe('commands', () => {
     }
   });
 
+  it('extract-sharepoint-links-in-mail surfaces every SP URL in the body and resolves each via /shares/{token}/driveItem', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/me/messages/m1',
+        method: 'GET',
+        response: () =>
+          Response.json({
+            subject: 'Q3 deck',
+            body: {
+              content:
+                '<p>See <a href="https://contoso.sharepoint.com/sites/Marketing/Q3.docx">deck</a> and <a href="https://contoso.sharepoint.com/sites/Marketing/notes.txt">notes</a>.</p>',
+            },
+          }),
+      },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/shares/u!',
+        method: 'GET',
+        response: () => Response.json({ id: 'i-q3', name: 'Q3.docx', webUrl: 'https://contoso.sharepoint.com/sites/Marketing/Q3.docx', parentReference: { driveId: 'd1' } }),
+      },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/shares/u!',
+        method: 'GET',
+        response: () => Response.json({ id: 'i-notes', name: 'notes.txt', webUrl: 'https://contoso.sharepoint.com/sites/Marketing/notes.txt', parentReference: { driveId: 'd1' } }),
+      },
+    ]);
+    const cmd = cmdMap['extract-sharepoint-links-in-mail'];
+    if (!cmd) throw new Error('extract-sharepoint-links-in-mail not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as {
+        messageId: string;
+        subject?: string;
+        links: Array<{ url: string; driveId?: string; itemId?: string; name?: string }>;
+        truncated: boolean;
+        skippedCount: number;
+      };
+      expect(v.messageId).toBe('m1');
+      expect(v.subject).toBe('Q3 deck');
+      expect(v.truncated).toBe(false);
+      expect(v.skippedCount).toBe(0);
+      expect(v.links).toHaveLength(2);
+      expect(v.links[0]?.driveId).toBe('d1');
+      expect(v.links[0]?.itemId).toBe('i-q3');
+      expect(v.links[0]?.name).toBe('Q3.docx');
+      expect(v.links[1]?.itemId).toBe('i-notes');
+    }
+  });
+
+  it('extract-sharepoint-links-in-mail caps the response at 25 links and reports `truncated` + `skippedCount` (Hardening #4)', async () => {
+    const links = Array.from({ length: 30 }, (_, i) => `<a href="https://contoso.sharepoint.com/sites/X/file${i}.docx">f${i}</a>`).join('');
+    const handlers = [
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/me/messages/mBig',
+        method: 'GET',
+        response: (): Response => Response.json({ subject: 'Many links', body: { content: `<p>${links}</p>` } }),
+      },
+      ...Array.from({ length: 25 }, (_, i) => ({
+        urlPrefix: 'https://graph.microsoft.com/v1.0/shares/u!',
+        method: 'GET',
+        response: (): Response => Response.json({ id: `i-${i}`, name: `file${i}.docx`, parentReference: { driveId: 'd1' } }),
+      })),
+    ];
+    const fetchFn = stagedFetch(handlers);
+    const cmd = cmdMap['extract-sharepoint-links-in-mail'];
+    if (!cmd) throw new Error('extract-sharepoint-links-in-mail not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'mBig' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { links: Array<unknown>; truncated: boolean; skippedCount: number };
+      expect(v.links).toHaveLength(25);
+      expect(v.truncated).toBe(true);
+      expect(v.skippedCount).toBe(5);
+    }
+  });
+
+  it('extract-sharepoint-links-in-mail captures per-link resolve errors instead of failing the whole call', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/me/messages/m2',
+        method: 'GET',
+        response: () =>
+          Response.json({
+            subject: 'mixed',
+            body: { content: '<a href="https://contoso.sharepoint.com/good.docx">a</a> <a href="https://contoso.sharepoint.com/bad.docx">b</a>' },
+          }),
+      },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/shares/u!',
+        method: 'GET',
+        response: () => Response.json({ id: 'i-good', name: 'good.docx', parentReference: { driveId: 'd1' } }),
+      },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/shares/u!',
+        method: 'GET',
+        response: () => new Response(JSON.stringify({ error: { message: 'access denied' } }), { status: 403, headers: { 'content-type': 'application/json' } }),
+      },
+    ]);
+    const cmd = cmdMap['extract-sharepoint-links-in-mail'];
+    if (!cmd) throw new Error('extract-sharepoint-links-in-mail not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm2' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { links: Array<{ url: string; itemId?: string; error?: string }> };
+      expect(v.links).toHaveLength(2);
+      expect(v.links[0]?.itemId).toBe('i-good');
+      expect(v.links[1]?.error).toContain('access denied');
+    }
+  });
+
+  it('extract-sharepoint-links-in-mail returns an empty links array when the body has no SharePoint URLs', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/me/messages/m3',
+        method: 'GET',
+        response: () => Response.json({ subject: 'plain', body: { content: '<p>just text</p>' } }),
+      },
+    ]);
+    const cmd = cmdMap['extract-sharepoint-links-in-mail'];
+    if (!cmd) throw new Error('extract-sharepoint-links-in-mail not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm3' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { links: Array<unknown>; truncated: boolean };
+      expect(v.links).toHaveLength(0);
+      expect(v.truncated).toBe(false);
+    }
+  });
+
+  it('extract-sharepoint-links-in-mail propagates an err from the message GET unchanged', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/me/messages/mNope',
+        method: 'GET',
+        response: () => new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404, headers: { 'content-type': 'application/json' } }),
+      },
+    ]);
+    const cmd = cmdMap['extract-sharepoint-links-in-mail'];
+    if (!cmd) throw new Error('extract-sharepoint-links-in-mail not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'mNope' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(404);
+    }
+  });
+
+  it('extract-sharepoint-links-in-mail handles a message with no body field', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/me/messages/mEmpty',
+        method: 'GET',
+        response: () => Response.json({ subject: 'no body' }),
+      },
+    ]);
+    const cmd = cmdMap['extract-sharepoint-links-in-mail'];
+    if (!cmd) throw new Error('extract-sharepoint-links-in-mail not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'mEmpty' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { links: Array<unknown> };
+      expect(v.links).toHaveLength(0);
+    }
+  });
+
+  it('extract-sharepoint-links-in-mail surfaces a non-api_error err type with a labelled message', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/me/messages/mNetErr',
+        method: 'GET',
+        response: () => Response.json({ subject: 'x', body: { content: '<a href="https://contoso.sharepoint.com/a.docx">a</a>' } }),
+      },
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/shares/u!',
+        method: 'GET',
+        response: () => {
+          throw new Error('boom');
+        },
+      },
+    ]);
+    const cmd = cmdMap['extract-sharepoint-links-in-mail'];
+    if (!cmd) throw new Error('extract-sharepoint-links-in-mail not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'mNetErr' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { links: Array<{ error?: string }> };
+      expect(v.links[0]?.error).toContain('network_error');
+      expect(v.links[0]?.error).toContain('boom');
+    }
+  });
+
   it('get-onenote-page-as-markdown turns Graph-returned HTML into a markdown envelope', async () => {
     const fetchFn = stagedFetch([
       {
@@ -707,6 +906,7 @@ const allCommandFixtures: CommandFixture[] = [
   { name: 'list-mail-rules', params: { mailFolderId: 'f1' } },
   { name: 'get-mailbox-settings', params: {} },
   { name: 'search-mail-messages', params: { query: 'invoice' } },
+  { name: 'extract-sharepoint-links-in-mail', params: { messageId: 'm1' } },
   { name: 'list-onenote-notebooks', params: {} },
   { name: 'list-onenote-notebook-sections', params: { notebookId: 'n1' } },
   { name: 'list-all-onenote-sections', params: {} },
@@ -764,6 +964,7 @@ describe('command schema rejection', () => {
     { name: 'download-drive-item-version-as-markdown', params: { driveId: 'd1', itemId: 'i1' } },
     { name: 'get-onenote-page-as-markdown', params: {} },
     { name: 'search-mail-messages', params: {} },
+    { name: 'extract-sharepoint-links-in-mail', params: {} },
     { name: 'search-my-documents', params: {} },
     { name: 'get-calendar-view', params: {} },
     { name: 'list-calendar-view-delta', params: {} },
@@ -871,6 +1072,7 @@ const pathFixtures: Array<{ name: string; params: Record<string, string>; expect
   { name: 'list-mail-rules', params: { mailFolderId: 'f1' }, expectedPath: '/me/mailFolders/f1/messageRules' },
   { name: 'get-mailbox-settings', params: {}, expectedPath: '/me/mailboxSettings' },
   { name: 'search-mail-messages', params: { query: 'invoice' }, expectedPath: '/me/messages?$search="invoice"' },
+  { name: 'extract-sharepoint-links-in-mail', params: { messageId: 'm1' }, expectedPath: '/me/messages/m1?$select=subject,body' },
   { name: 'list-onenote-notebooks', params: {}, expectedPath: '/me/onenote/notebooks' },
   { name: 'list-onenote-notebook-sections', params: { notebookId: 'n1' }, expectedPath: '/me/onenote/notebooks/n1/sections' },
   { name: 'list-all-onenote-sections', params: {}, expectedPath: '/me/onenote/sections' },
