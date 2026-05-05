@@ -201,6 +201,24 @@ ask-marcel --help
 
 During development from a clone you can keep using `bun run src/main.ts <command>`.
 
+### Pagination
+
+Microsoft Graph paginates every `list-*`, `search-*`, and delta endpoint (default page size 10 for most resources). When the response contains an `@odata.nextLink`, feed that URL back through `next-page` and repeat until the field is absent:
+
+```bash
+# page 1
+ask-marcel list-mail-folders > p1.json
+
+# page 2..N — loop until @odata.nextLink is gone
+next=$(jq -r '."@odata.nextLink" // empty' p1.json)
+while [ -n "$next" ]; do
+  ask-marcel next-page --url "$next" > pN.json
+  next=$(jq -r '."@odata.nextLink" // empty' pN.json)
+done
+```
+
+Every paginated command advertises this in three places: `ask-marcel <cmd> --help` prints a `Pagination:` line, `ask-marcel docs <cmd>` adds a `**Pagination:**` field, and [`docs/commands.json`](docs/commands.json) ships `"pagination": true` on each entry so agents can detect it programmatically.
+
 ## Usage (library)
 
 The package exports a typed library API for embedding inside your own CLI, agent, or service.
