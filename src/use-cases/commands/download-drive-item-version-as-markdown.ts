@@ -30,7 +30,7 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
 
 const meta: CommandMeta = {
   summary:
-    'Download a *historical version* of a OneDrive / SharePoint file converted to markdown. Graph converts the source version to HTML on the fly, then this CLI runs turndown over it. Same caveat as `download-drive-item-version-as-pdf`: Graph refuses to serve the current version through this endpoint — use `download-drive-item-as-markdown` for the current version. Plain-text source extensions short-circuit to a raw-bytes download.',
+    'Download a *historical version* of a OneDrive / SharePoint file converted to markdown. **Currently broken upstream:** as of 2026-05 the historical-version `?format=html` endpoint returns `Forbidden` (the current-version sibling returns `Sandbox_InputFormatNotSupported`). Both failure modes trace back to Microsoft disabling HTML conversion at the Office Online sandbox. Use `download-drive-item-version-as-pdf` until Microsoft restores it. Plain-text source extensions still short-circuit to raw bytes.',
   category: 'drive',
   graphMethod: 'GET',
   graphPathTemplate: '/drives/{drive-id}/items/{item-id}/versions/{version-id}/content?format=html',

@@ -71,11 +71,24 @@ const networkErrorMessage = (e: unknown): string => {
   return 'network request failed';
 };
 
-const emptyOnJsonFailure = (): { error?: { message?: string } } => ({});
+type GraphErrorBody = {
+  readonly error?: {
+    readonly code?: string;
+    readonly message?: string;
+    readonly innererror?: { readonly code?: string };
+  };
+};
+
+const emptyOnJsonFailure = (): GraphErrorBody => ({});
 
 const apiErrorFrom = async (res: Response): Promise<GraphError> => {
-  const errBody = (await res.json().catch(emptyOnJsonFailure)) as { error?: { message?: string } };
-  return { type: 'api_error', status: res.status, message: errBody.error?.message ?? res.statusText };
+  const errBody = (await res.json().catch(emptyOnJsonFailure)) as GraphErrorBody;
+  const tag = errBody.error?.innererror?.code ?? errBody.error?.code;
+  const message = errBody.error?.message;
+  if (typeof tag === 'string' && typeof message === 'string') {
+    return { type: 'api_error', status: res.status, message: `${tag}: ${message}` };
+  }
+  return { type: 'api_error', status: res.status, message: message ?? res.statusText };
 };
 
 const createGraphClient = (auth: AuthManager, fetchFn: FetchFn = globalThis.fetch): GraphClient => {
@@ -152,9 +165,7 @@ const createGraphClient = (auth: AuthManager, fetchFn: FetchFn = globalThis.fetc
         headers: { accept: 'text/html, application/xhtml+xml, application/xml;q=0.9, */*;q=0.8' },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-      if (!res.ok) {
-        return err({ type: 'api_error', status: res.status, message: res.statusText });
-      }
+      if (!res.ok) return err(await apiErrorFrom(res));
       const contentType = res.headers.get('content-type');
       if (isJson(contentType)) return ok(await res.json());
       if (isText(contentType)) {

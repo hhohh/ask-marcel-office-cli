@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { ok } from '../../domain/result.ts';
+import { err, ok } from '../../domain/result.ts';
 import type { GraphClient } from '../../infra/graph-client.ts';
 import { convertToMarkdown } from './markdown-pipeline.ts';
 
@@ -107,6 +107,40 @@ describe('convertToMarkdown — orchestrate getBinary + optional 302 follow + im
     expect(result.ok).toBe(false);
     if (!result.ok && result.error.type === 'api_error') {
       expect(result.error.message).toContain('missing text field');
+    }
+  });
+
+  it('rewrites the Sandbox_InputFormatNotSupported error into a clear hint pointing the user at the *-as-pdf sibling (Microsoft has disabled HTML conversion server-side)', async () => {
+    const graph = noopGraph({
+      getBinary: async () =>
+        err({
+          type: 'api_error' as const,
+          status: 406,
+          message: 'Sandbox_InputFormatNotSupported: An exception occurred while executing within the Sandbox',
+        }),
+    });
+    const result = await convertToMarkdown(graph, '/drives/d1/items/i1/content?format=html');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.message).toContain('Office Online has disabled HTML conversion');
+      expect(result.error.message).toContain('*-as-pdf');
+    }
+  });
+
+  it('rewrites the Sandbox error when it surfaces from the fetchUrl 302-follow path (CDN refusal, not the initial Graph call)', async () => {
+    const graph = noopGraph({
+      getBinary: async () => ok({ '@microsoft.graph.downloadUrl': 'https://francecentral1-mediap.svc.ms/transform/html?x=1' }),
+      fetchUrl: async () =>
+        err({
+          type: 'api_error' as const,
+          status: 406,
+          message: 'Sandbox_InputFormatNotSupported: An exception occurred while executing within the Sandbox',
+        }),
+    });
+    const result = await convertToMarkdown(graph, '/drives/d1/items/i1/content?format=html');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.message).toContain('Office Online has disabled HTML conversion');
     }
   });
 });

@@ -141,7 +141,7 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
 
 const meta: CommandMeta = {
   summary:
-    'Convert an Outlook mail attachment to markdown. Polymorphic on the attachment’s `@odata.type`: fileAttachment uploads the bytes to a temp folder, runs Graph ?format=html, runs the result through turndown, then deletes the temp item (large files use the chunked upload session — no 4 MB ceiling); referenceAttachment resolves via /shares/{token}/driveItem and runs the same pipeline in place; itemAttachment (embedded mail / event / contact) is rendered locally without any Graph conversion via dedicated renderers. Plain-text source extensions short-circuit to a raw-bytes download envelope.',
+    'Convert an Outlook mail attachment to markdown. Polymorphic on the attachment’s `@odata.type`: fileAttachment uploads the bytes to a temp folder, runs Graph `?format=html`, runs the result through turndown, then deletes the temp item; referenceAttachment resolves via /shares/{token}/driveItem and runs the same pipeline in place; itemAttachment (embedded mail / event / contact) is rendered locally without any Graph conversion via dedicated renderers. **Currently broken upstream for Office source formats:** fileAttachment + referenceAttachment paths return `Sandbox_InputFormatNotSupported` because Microsoft Office Online has disabled HTML conversion (verified 2026-05 against docx, pptx, xlsx). Use `convert-mail-attachment-to-pdf` for those paths until Microsoft restores it. itemAttachment and plain-text source extensions are unaffected.',
   category: 'mail',
   graphMethod: 'GET',
   graphPathTemplate: '/me/messages/{message-id}/attachments/{attachment-id}',

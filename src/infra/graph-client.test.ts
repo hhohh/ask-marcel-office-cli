@@ -235,6 +235,24 @@ describe('graph client', () => {
     }
   });
 
+  it('fetchUrl extracts innererror.code from a JSON error body so the user sees the specific failure code, not just statusText', async () => {
+    const body = JSON.stringify({
+      error: {
+        code: 'notSupported',
+        message: 'An exception occurred while executing within the Sandbox',
+        innererror: { code: 'Sandbox_InputFormatNotSupported' },
+      },
+    });
+    const fetchFn: FetchFn = async () => new Response(body, { status: 406, statusText: 'Not Acceptable', headers: { 'content-type': 'application/json' } });
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.fetchUrl('https://francecentral1-mediap.svc.ms/transform/html?x=1');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(406);
+      expect(result.error.message).toBe('Sandbox_InputFormatNotSupported: An exception occurred while executing within the Sandbox');
+    }
+  });
+
   it('fetchUrl wraps network errors via the same networkErrorMessage helper', async () => {
     const throwing: FetchFn = async () => {
       throw new Error('socket reset');

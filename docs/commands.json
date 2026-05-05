@@ -1,11 +1,11 @@
 {
   "package": "ask-marcel-office-cli",
-  "version": "0.6.3",
-  "generatedAt": "2026-05-05T08:49:13.758Z",
+  "version": "0.6.4",
+  "generatedAt": "2026-05-05T09:34:16.918Z",
   "commands": [
     {
       "name": "convert-mail-attachment-to-markdown",
-      "summary": "Convert an Outlook mail attachment to markdown. Polymorphic on the attachment’s `@odata.type`: fileAttachment uploads the bytes to a temp folder, runs Graph ?format=html, runs the result through turndown, then deletes the temp item (large files use the chunked upload session — no 4 MB ceiling); referenceAttachment resolves via /shares/{token}/driveItem and runs the same pipeline in place; itemAttachment (embedded mail / event / contact) is rendered locally without any Graph conversion via dedicated renderers. Plain-text source extensions short-circuit to a raw-bytes download envelope.",
+      "summary": "Convert an Outlook mail attachment to markdown. Polymorphic on the attachment’s `@odata.type`: fileAttachment uploads the bytes to a temp folder, runs Graph `?format=html`, runs the result through turndown, then deletes the temp item; referenceAttachment resolves via /shares/{token}/driveItem and runs the same pipeline in place; itemAttachment (embedded mail / event / contact) is rendered locally without any Graph conversion via dedicated renderers. **Currently broken upstream for Office source formats:** fileAttachment + referenceAttachment paths return `Sandbox_InputFormatNotSupported` because Microsoft Office Online has disabled HTML conversion (verified 2026-05 against docx, pptx, xlsx). Use `convert-mail-attachment-to-pdf` for those paths until Microsoft restores it. itemAttachment and plain-text source extensions are unaffected.",
       "category": "mail",
       "graphMethod": "GET",
       "graphPathTemplate": "/me/messages/{message-id}/attachments/{attachment-id}",
@@ -71,7 +71,7 @@
     },
     {
       "name": "download-drive-item-as-markdown",
-      "summary": "Download a OneDrive / SharePoint file converted to markdown. Graph converts the source to HTML on the fly (`?format=html`), then this CLI runs turndown over it locally to produce clean markdown. Source must be one of the Office formats Graph supports. For plain-text source extensions the command short-circuits and returns raw bytes instead. Worst-case wall-clock is roughly two 60s round-trips back-to-back.",
+      "summary": "Download a OneDrive / SharePoint file converted to markdown. **Currently broken upstream:** as of 2026-05 Microsoft Graph `?format=html` returns `Sandbox_InputFormatNotSupported` for every Office input format we have tested (docx, pptx, xlsx); the CLI surfaces that error verbatim so an agent can detect it. Use `download-drive-item-as-pdf` until Microsoft restores HTML conversion. Plain-text source extensions still short-circuit and return raw bytes locally — those keep working.",
       "category": "drive",
       "graphMethod": "GET",
       "graphPathTemplate": "/drives/{drive-id}/items/{item-id}/content?format=html",
@@ -119,7 +119,7 @@
     },
     {
       "name": "download-drive-item-version-as-markdown",
-      "summary": "Download a *historical version* of a OneDrive / SharePoint file converted to markdown. Graph converts the source version to HTML on the fly, then this CLI runs turndown over it. Same caveat as `download-drive-item-version-as-pdf`: Graph refuses to serve the current version through this endpoint — use `download-drive-item-as-markdown` for the current version. Plain-text source extensions short-circuit to a raw-bytes download.",
+      "summary": "Download a *historical version* of a OneDrive / SharePoint file converted to markdown. **Currently broken upstream:** as of 2026-05 the historical-version `?format=html` endpoint returns `Forbidden` (the current-version sibling returns `Sandbox_InputFormatNotSupported`). Both failure modes trace back to Microsoft disabling HTML conversion at the Office Online sandbox. Use `download-drive-item-version-as-pdf` until Microsoft restores it. Plain-text source extensions still short-circuit to raw bytes.",
       "category": "drive",
       "graphMethod": "GET",
       "graphPathTemplate": "/drives/{drive-id}/items/{item-id}/versions/{version-id}/content?format=html",
