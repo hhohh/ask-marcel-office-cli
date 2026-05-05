@@ -30,7 +30,7 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
 
 const meta: CommandMeta = {
   summary:
-    'Download a OneDrive / SharePoint file converted to markdown. **Currently broken upstream:** as of 2026-05 Microsoft Graph `?format=html` returns `Sandbox_InputFormatNotSupported` for every Office input format we have tested (docx, pptx, xlsx); the CLI surfaces that error verbatim so an agent can detect it. Use `download-drive-item-as-pdf` until Microsoft restores HTML conversion. Plain-text source extensions still short-circuit and return raw bytes locally — those keep working.',
+    'Download a OneDrive / SharePoint file converted to markdown via Graph `?format=html` + local turndown. **Narrow input support:** Microsoft Graph documents `?format=html` as accepting only four source extensions — loop, fluid, wbtx, whiteboard (https://learn.microsoft.com/en-us/graph/api/driveitem-get-content-format). For Office documents (docx, pptx, xlsx, pdf) Graph returns `Sandbox_InputFormatNotSupported` — use `download-drive-item-as-pdf` instead, since `?format=pdf` accepts 38 input extensions including all Office formats. Plain-text source extensions short-circuit locally to raw bytes.',
   category: 'drive',
   graphMethod: 'GET',
   graphPathTemplate: '/drives/{drive-id}/items/{item-id}/content?format=html',

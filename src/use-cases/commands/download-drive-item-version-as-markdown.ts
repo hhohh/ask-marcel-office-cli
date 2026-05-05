@@ -30,7 +30,7 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
 
 const meta: CommandMeta = {
   summary:
-    'Download a *historical version* of a OneDrive / SharePoint file converted to markdown. **Currently broken upstream:** as of 2026-05 the historical-version `?format=html` endpoint returns `Forbidden` (the current-version sibling returns `Sandbox_InputFormatNotSupported`). Both failure modes trace back to Microsoft disabling HTML conversion at the Office Online sandbox. Use `download-drive-item-version-as-pdf` until Microsoft restores it. Plain-text source extensions still short-circuit to raw bytes.',
+    'Download a *historical version* of a OneDrive / SharePoint file converted to markdown. Same narrow input support as `download-drive-item-as-markdown` — Graph `?format=html` only accepts loop, fluid, wbtx, whiteboard (https://learn.microsoft.com/en-us/graph/api/driveitem-get-content-format). Office documents return `Forbidden` on this historical-version endpoint specifically (vs. `Sandbox_InputFormatNotSupported` on the current-version endpoint). Use `download-drive-item-version-as-pdf` for Office sources. Plain-text extensions short-circuit to raw bytes.',
   category: 'drive',
   graphMethod: 'GET',
   graphPathTemplate: '/drives/{drive-id}/items/{item-id}/versions/{version-id}/content?format=html',

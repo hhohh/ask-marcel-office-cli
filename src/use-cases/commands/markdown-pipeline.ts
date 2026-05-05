@@ -20,12 +20,17 @@ import { embedInlineImages, type InlineAttachment } from './inline-image-embedde
 type MarkdownEnvelope = { readonly contentType: 'text/markdown'; readonly size: number; readonly text: string };
 
 /**
- * Microsoft Office Online's `?format=html` conversion sandbox returns
- * `Sandbox_InputFormatNotSupported` for every Office input format we
- * have tested as of 2026-05 (verified against docx, pptx, xlsx). The
- * upstream API is documented but currently inoperative server-side.
- * When we see this error code, replace the bare error with an
- * actionable message that points the user at the working PDF sibling.
+ * Microsoft Graph's `?format=html` conversion supports a *narrow* input
+ * set: only `loop`, `fluid`, `wbtx`, and `whiteboard` source extensions
+ * (per https://learn.microsoft.com/en-us/graph/api/driveitem-get-content-format).
+ * Office documents (docx, pptx, xlsx, pdf, rtf, etc.) are NOT in that set
+ * and cause Office Online's conversion sandbox to return
+ * `Sandbox_InputFormatNotSupported`. This has been the documented
+ * behavior since the API shipped — it is not an outage.
+ *
+ * `format=pdf` has a much wider input set (38 extensions including all
+ * Office formats), so the right user-facing fix is to redirect them to
+ * the `*-as-pdf` sibling.
  */
 const augmentSandboxError = (e: GraphError): GraphError => {
   if (e.type !== 'api_error' || !e.message.startsWith('Sandbox_InputFormatNotSupported')) return e;
@@ -33,7 +38,7 @@ const augmentSandboxError = (e: GraphError): GraphError => {
     type: 'api_error',
     status: e.status,
     message:
-      'Microsoft Graph `?format=html` returned Sandbox_InputFormatNotSupported. Office Online has disabled HTML conversion for every Office input format (verified 2026-05 against docx, pptx, xlsx). Use the corresponding `*-as-pdf` command instead — PDF conversion is unaffected.',
+      'Microsoft Graph `?format=html` only supports four input extensions: loop, fluid, wbtx, whiteboard (https://learn.microsoft.com/en-us/graph/api/driveitem-get-content-format). Office documents (docx, pptx, xlsx, pdf) are NOT in that set and Office Online correctly rejects them with Sandbox_InputFormatNotSupported. For Office sources, use the corresponding `*-as-pdf` command — `?format=pdf` accepts a much wider input set.',
   };
 };
 

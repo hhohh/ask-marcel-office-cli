@@ -110,7 +110,7 @@ describe('convertToMarkdown — orchestrate getBinary + optional 302 follow + im
     }
   });
 
-  it('rewrites the Sandbox_InputFormatNotSupported error into a clear hint pointing the user at the *-as-pdf sibling (Microsoft has disabled HTML conversion server-side)', async () => {
+  it('rewrites the Sandbox_InputFormatNotSupported error into a clear hint citing the documented HTML input set + *-as-pdf workaround', async () => {
     const graph = noopGraph({
       getBinary: async () =>
         err({
@@ -122,7 +122,7 @@ describe('convertToMarkdown — orchestrate getBinary + optional 302 follow + im
     const result = await convertToMarkdown(graph, '/drives/d1/items/i1/content?format=html');
     expect(result.ok).toBe(false);
     if (!result.ok && result.error.type === 'api_error') {
-      expect(result.error.message).toContain('Office Online has disabled HTML conversion');
+      expect(result.error.message).toContain('loop, fluid, wbtx, whiteboard');
       expect(result.error.message).toContain('*-as-pdf');
     }
   });
@@ -140,7 +140,7 @@ describe('convertToMarkdown — orchestrate getBinary + optional 302 follow + im
     const result = await convertToMarkdown(graph, '/drives/d1/items/i1/content?format=html');
     expect(result.ok).toBe(false);
     if (!result.ok && result.error.type === 'api_error') {
-      expect(result.error.message).toContain('Office Online has disabled HTML conversion');
+      expect(result.error.message).toContain('loop, fluid, wbtx, whiteboard');
     }
   });
 });
