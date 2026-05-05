@@ -3,7 +3,7 @@ import { accessTokenUnsafe } from '../../domain/access-token.ts';
 import type { Result } from '../../domain/result.ts';
 import { ok } from '../../domain/result.ts';
 import type { AuthManager } from '../../infra/auth.ts';
-import type { GraphError } from '../../infra/graph-client.ts';
+import type { FetchFn, GraphError } from '../../infra/graph-client.ts';
 import { createGraphClient } from '../../infra/graph-client.ts';
 import * as downloadDriveItemAsMarkdown from './download-drive-item-as-markdown.ts';
 import * as downloadDriveItemAsPdf from './download-drive-item-as-pdf.ts';
@@ -84,6 +84,9 @@ import * as searchOnedriveFiles from './search-onedrive-files.ts';
 import * as searchOnenotePages from './search-onenote-pages.ts';
 import * as searchSharepointSitesByName from './search-sharepoint-sites-by-name.ts';
 import * as extractSharepointLinksInMail from './extract-sharepoint-links-in-mail.ts';
+import * as convertMailAttachmentToMarkdown from './convert-mail-attachment-to-markdown.ts';
+import * as convertMailAttachmentToPdf from './convert-mail-attachment-to-pdf.ts';
+import * as convertMailToMarkdown from './convert-mail-to-markdown.ts';
 import * as searchSharepointSites from './search-sharepoint-sites.ts';
 
 const cmdMap: Record<string, { execute: typeof listDrives.execute }> = {
@@ -142,6 +145,9 @@ const cmdMap: Record<string, { execute: typeof listDrives.execute }> = {
   'get-mailbox-settings': getMailboxSettings,
   'search-mail-messages': searchMailMessages,
   'extract-sharepoint-links-in-mail': extractSharepointLinksInMail,
+  'convert-mail-to-markdown': convertMailToMarkdown,
+  'convert-mail-attachment-to-pdf': convertMailAttachmentToPdf,
+  'convert-mail-attachment-to-markdown': convertMailAttachmentToMarkdown,
   'list-onenote-notebooks': listOnenoteNotebooks,
   'list-onenote-notebook-sections': listOnenoteNotebookSections,
   'list-all-onenote-sections': listAllOnenoteSections,
@@ -830,6 +836,528 @@ describe('commands', () => {
     }
   });
 
+  it('convert-mail-to-markdown renders a single email with headers + body via turndown', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/me/messages/m1',
+        method: 'GET',
+        response: () =>
+          Response.json({
+            subject: 'Q3',
+            from: { emailAddress: { name: 'Alice', address: 'alice@contoso.com' } },
+            toRecipients: [{ emailAddress: { address: 'bob@contoso.com' } }],
+            receivedDateTime: '2026-04-30T08:00:00Z',
+            body: { contentType: 'html', content: '<p>Hi <strong>team</strong>.</p>' },
+            attachments: [],
+          }),
+      },
+    ]);
+    const cmd = cmdMap['convert-mail-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { contentType: string; text: string };
+      expect(v.contentType).toBe('text/markdown');
+      expect(v.text).toContain('**Subject:** Q3');
+      expect(v.text).toContain('**From:** Alice <alice@contoso.com>');
+      expect(v.text).toContain('Hi **team**.');
+    }
+  });
+
+  it('convert-mail-to-markdown embeds inline image attachments as data: URIs (Hardening #1)', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/me/messages/m2',
+        method: 'GET',
+        response: () =>
+          Response.json({
+            subject: 'with logo',
+            body: { contentType: 'html', content: '<p>Logo: <img src="cid:logo123" alt="logo"></p>' },
+            attachments: [{ '@odata.type': '#microsoft.graph.fileAttachment', isInline: true, contentId: 'logo123', contentType: 'image/png', contentBytes: 'iVBORw0=' }],
+          }),
+      },
+    ]);
+    const cmd = cmdMap['convert-mail-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm2' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { text: string };
+      expect(v.text).toContain('data:image/png;base64,iVBORw0=');
+      expect(v.text).not.toContain('cid:logo123');
+    }
+  });
+
+  it('convert-mail-to-markdown does NOT embed non-image inline attachments (Hardening #1 verified)', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/me/messages/m3',
+        method: 'GET',
+        response: () =>
+          Response.json({
+            subject: 'sneaky',
+            body: { contentType: 'html', content: '<p>X: <img src="cid:evil"></p>' },
+            attachments: [{ '@odata.type': '#microsoft.graph.fileAttachment', isInline: true, contentId: 'evil', contentType: 'text/html', contentBytes: 'PHNjcmlwdD4=' }],
+          }),
+      },
+    ]);
+    const cmd = cmdMap['convert-mail-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm3' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { text: string };
+      expect(v.text).not.toContain('PHNjcmlwdD4=');
+      expect(v.text).not.toContain('data:text/html');
+    }
+  });
+
+  it('convert-mail-to-markdown handles plain-text bodies (no turndown round-trip)', async () => {
+    const fetchFn = stagedFetch([
+      {
+        urlPrefix: 'https://graph.microsoft.com/v1.0/me/messages/m4',
+        method: 'GET',
+        response: () => Response.json({ subject: 'plain', body: { contentType: 'text', content: 'Hello\nworld' }, attachments: [] }),
+      },
+    ]);
+    const cmd = cmdMap['convert-mail-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm4' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { text: string };
+      expect(v.text).toContain('Hello');
+    }
+  });
+
+  it('convert-mail-attachment-to-pdf uploads a fileAttachment, converts via ?format=pdf, then deletes the temp item', async () => {
+    const calls: Array<{ url: string; method?: string }> = [];
+    const fetchFn: FetchFn = async (url, init) => {
+      calls.push({ url, method: init?.method });
+      if (url.endsWith('/attachments/a1')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.fileAttachment', name: 'plan.docx', contentBytes: btoa('docx-bytes') });
+      }
+      if (url.includes(':/content') && init?.method === 'PUT') {
+        return Response.json({ id: 'temp-i1', name: 'plan-temp' });
+      }
+      if (url.endsWith('/content?format=pdf')) {
+        return Response.json({ '@microsoft.graph.downloadUrl': 'https://cdn.example/plan.pdf' });
+      }
+      if (url.endsWith('/items/temp-i1') && init?.method === 'DELETE') {
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`unexpected fetch: ${init?.method ?? 'GET'} ${url}`);
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-pdf'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'a1' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual({ '@microsoft.graph.downloadUrl': 'https://cdn.example/plan.pdf' });
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(true);
+    expect(calls.some((c) => c.url.endsWith('/content?format=pdf'))).toBe(true);
+  });
+
+  it('convert-mail-attachment-to-pdf short-circuits to a raw-bytes envelope for plain-text source extensions', async () => {
+    const fetchFn: FetchFn = async (url, init) => {
+      if (url.endsWith('/attachments/aText')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.fileAttachment', name: 'README.md', contentBytes: btoa('# Hello') });
+      }
+      throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${url}`);
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-pdf'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aText' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { contentType: string; size: number; base64: string; note: string };
+      expect(v.contentType).toBe('text/plain');
+      expect(v.note).toContain('plain-text source');
+      expect(atob(v.base64)).toBe('# Hello');
+    }
+  });
+
+  it('convert-mail-attachment-to-pdf resolves a referenceAttachment via /shares/{token}/driveItem and converts in place', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith('/attachments/aRef')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.referenceAttachment', sourceUrl: 'https://contoso.sharepoint.com/sites/X/q3.docx' });
+      }
+      if (url.includes('/shares/u!')) {
+        return Response.json({ id: 'i-q3', name: 'q3.docx', parentReference: { driveId: 'd1' } });
+      }
+      if (url.endsWith('/drives/d1/items/i-q3/content?format=pdf')) {
+        return Response.json({ '@microsoft.graph.downloadUrl': 'https://cdn.example/q3.pdf' });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-pdf'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aRef' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual({ '@microsoft.graph.downloadUrl': 'https://cdn.example/q3.pdf' });
+  });
+
+  it('convert-mail-attachment-to-pdf rejects itemAttachment with a clear unsupported error pointing at the markdown variant', async () => {
+    const fetchFn: FetchFn = async () =>
+      Response.json({ '@odata.type': '#microsoft.graph.itemAttachment', item: { '@odata.type': '#microsoft.graph.message', subject: 'embedded' } });
+    const cmd = cmdMap['convert-mail-attachment-to-pdf'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aItem' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(400);
+      expect(result.error.message).toContain('convert-mail-attachment-to-markdown');
+    }
+  });
+
+  it('convert-mail-attachment-to-pdf returns api_error when @odata.type is missing (FIX #3 discriminator guard)', async () => {
+    const fetchFn: FetchFn = async () => Response.json({ name: 'no-type.docx' });
+    const cmd = cmdMap['convert-mail-attachment-to-pdf'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aBad' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.message).toContain('missing @odata.type discriminator');
+    }
+  });
+
+  it('convert-mail-attachment-to-pdf returns api_error when the @odata.type is unknown', async () => {
+    const fetchFn: FetchFn = async () => Response.json({ '@odata.type': '#microsoft.graph.weirdNewType' });
+    const cmd = cmdMap['convert-mail-attachment-to-pdf'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aWeird' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.message).toContain('unsupported attachment type');
+    }
+  });
+
+  it('convert-mail-attachment-to-markdown renders an itemAttachment (message) without any Graph conversion call', async () => {
+    let conversionCalled = false;
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith('/attachments/aMsg')) {
+        return Response.json({
+          '@odata.type': '#microsoft.graph.itemAttachment',
+          item: {
+            '@odata.type': '#microsoft.graph.message',
+            subject: 'Re: Q3',
+            from: { emailAddress: { address: 'alice@x' } },
+            body: { contentType: 'html', content: '<p>looks good</p>' },
+          },
+        });
+      }
+      if (url.includes('?format=html')) conversionCalled = true;
+      return Response.json({});
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aMsg' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { contentType: string; text: string };
+      expect(v.contentType).toBe('text/markdown');
+      expect(v.text).toContain('**Subject:** Re: Q3');
+      expect(v.text).toContain('looks good');
+    }
+    expect(conversionCalled).toBe(false);
+  });
+
+  it('convert-mail-attachment-to-markdown renders an itemAttachment (event)', async () => {
+    const fetchFn: FetchFn = async () =>
+      Response.json({
+        '@odata.type': '#microsoft.graph.itemAttachment',
+        item: {
+          '@odata.type': '#microsoft.graph.event',
+          subject: 'Quarterly Review',
+          start: { dateTime: '2026-05-01T09:00:00', timeZone: 'UTC' },
+          end: { dateTime: '2026-05-01T10:00:00', timeZone: 'UTC' },
+        },
+      });
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aEvent' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { text: string };
+      expect(v.text).toContain('**Subject:** Quarterly Review');
+      expect(v.text).toContain('**Start:** 2026-05-01T09:00:00 UTC');
+    }
+  });
+
+  it('convert-mail-attachment-to-markdown rejects an itemAttachment whose inner @odata.type is unknown', async () => {
+    const fetchFn: FetchFn = async () => Response.json({ '@odata.type': '#microsoft.graph.itemAttachment', item: { '@odata.type': '#microsoft.graph.weird' } });
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aWeird' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.message).toContain('unsupported embedded item type');
+    }
+  });
+
+  it('convert-mail-attachment-to-markdown short-circuits a plain-text fileAttachment to a raw envelope', async () => {
+    const fetchFn: FetchFn = async () => Response.json({ '@odata.type': '#microsoft.graph.fileAttachment', name: 'README.md', contentBytes: btoa('# Hi') });
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aText' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { contentType: string; note?: string };
+      expect(v.contentType).toBe('text/plain');
+      expect(v.note).toContain('plain-text source');
+    }
+  });
+
+  it('convert-mail-attachment-to-markdown resolves a referenceAttachment via /shares/{token}/driveItem and runs pipeline', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith('/attachments/aRef')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.referenceAttachment', sourceUrl: 'https://contoso.sharepoint.com/sites/X/q3.docx' });
+      }
+      if (url.includes('/shares/u!')) {
+        return Response.json({ id: 'i-q3', name: 'q3.docx', parentReference: { driveId: 'd1' } });
+      }
+      if (url.endsWith('/drives/d1/items/i-q3/content?format=html')) {
+        return new Response('<h1>Q3</h1>', { status: 200, headers: { 'content-type': 'text/html' } });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aRef' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { text: string };
+      expect(v.text).toContain('# Q3');
+    }
+  });
+
+  it('convert-mail-attachment-to-markdown short-circuits referenceAttachment to a raw download for plain-text source', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith('/attachments/aRefText')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.referenceAttachment', sourceUrl: 'https://contoso.sharepoint.com/sites/X/notes.txt' });
+      }
+      if (url.includes('/shares/u!')) {
+        return Response.json({ id: 'i-text', name: 'notes.txt', parentReference: { driveId: 'd1' } });
+      }
+      if (url.endsWith('/drives/d1/items/i-text/content')) {
+        return new Response('plain', { status: 200, headers: { 'content-type': 'text/plain' } });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aRefText' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { text?: string };
+      expect(v.text).toBe('plain');
+    }
+  });
+
+  it('convert-mail-attachment-to-markdown rejects a referenceAttachment with no sourceUrl', async () => {
+    const fetchFn: FetchFn = async () => Response.json({ '@odata.type': '#microsoft.graph.referenceAttachment' });
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aRefBad' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') expect(result.error.message).toContain('missing sourceUrl');
+  });
+
+  it('convert-mail-attachment-to-markdown rejects a referenceAttachment whose /shares resolution lacks driveId', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith('/attachments/aRefBad2')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.referenceAttachment', sourceUrl: 'https://contoso.sharepoint.com/sites/x.docx' });
+      }
+      if (url.includes('/shares/u!')) {
+        return Response.json({ id: 'no-drive' });
+      }
+      throw new Error(`unexpected ${url}`);
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aRefBad2' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') expect(result.error.message).toContain('missing id or driveId');
+  });
+
+  it('convert-mail-attachment-to-markdown renders an itemAttachment (contact)', async () => {
+    const fetchFn: FetchFn = async () =>
+      Response.json({
+        '@odata.type': '#microsoft.graph.itemAttachment',
+        item: { '@odata.type': '#microsoft.graph.contact', displayName: 'Alice', emailAddresses: [{ address: 'alice@x' }] },
+      });
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aContact' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { text: string };
+      expect(v.text).toContain('**Name:** Alice');
+      expect(v.text).toContain('**Emails:** alice@x');
+    }
+  });
+
+  it('convert-mail-attachment-to-markdown rejects an itemAttachment with no inner item field', async () => {
+    const fetchFn: FetchFn = async () => Response.json({ '@odata.type': '#microsoft.graph.itemAttachment' });
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aBare' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') expect(result.error.message).toContain('missing inner item');
+  });
+
+  it('convert-mail-attachment-to-markdown rejects an itemAttachment whose inner item lacks @odata.type', async () => {
+    const fetchFn: FetchFn = async () => Response.json({ '@odata.type': '#microsoft.graph.itemAttachment', item: { subject: 'no type' } });
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aNoType' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') expect(result.error.message).toContain('itemAttachment.item missing @odata.type');
+  });
+
+  it('convert-mail-attachment-to-markdown returns api_error when @odata.type is missing on the outer attachment (FIX #3)', async () => {
+    const fetchFn: FetchFn = async () => Response.json({ name: 'no-type.docx' });
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aBad' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') expect(result.error.message).toContain('missing @odata.type discriminator');
+  });
+
+  it('convert-mail-attachment-to-markdown returns api_error when the @odata.type is unknown', async () => {
+    const fetchFn: FetchFn = async () => Response.json({ '@odata.type': '#microsoft.graph.weirdNewType' });
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aWeird' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') expect(result.error.message).toContain('unsupported attachment type');
+  });
+
+  it('convert-mail-attachment-to-pdf rejects a referenceAttachment with no sourceUrl', async () => {
+    const fetchFn: FetchFn = async () => Response.json({ '@odata.type': '#microsoft.graph.referenceAttachment' });
+    const cmd = cmdMap['convert-mail-attachment-to-pdf'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aRefBad' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') expect(result.error.message).toContain('missing sourceUrl');
+  });
+
+  it('convert-mail-attachment-to-pdf rejects a referenceAttachment whose resolved driveItem lacks ids', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith('/attachments/aRefBad2')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.referenceAttachment', sourceUrl: 'https://contoso.sharepoint.com/sites/x.docx' });
+      }
+      if (url.includes('/shares/u!')) return Response.json({ id: 'no-drive' });
+      throw new Error('unexpected');
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-pdf'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aRefBad2' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') expect(result.error.message).toContain('missing id or driveId');
+  });
+
+  it('convert-mail-attachment-to-pdf short-circuits a referenceAttachment to raw bytes for plain-text source', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.endsWith('/attachments/aRefText')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.referenceAttachment', sourceUrl: 'https://contoso.sharepoint.com/sites/X/notes.txt' });
+      }
+      if (url.includes('/shares/u!')) return Response.json({ id: 'i-text', name: 'notes.txt', parentReference: { driveId: 'd1' } });
+      if (url.endsWith('/drives/d1/items/i-text/content')) return new Response('plain', { status: 200, headers: { 'content-type': 'text/plain' } });
+      throw new Error('unexpected');
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-pdf'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aRefText' });
+    expect(result.ok).toBe(true);
+  });
+
+  it('convert-mail-attachment-to-markdown returns api_error when upload returns no driveItem id', async () => {
+    const fetchFn: FetchFn = async (url, init) => {
+      if (url.endsWith('/attachments/aFile')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.fileAttachment', name: 'plan.docx', contentBytes: btoa('docx-bytes') });
+      }
+      if (init?.method === 'PUT') return Response.json({ name: 'no-id' });
+      throw new Error('unexpected');
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aFile' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') expect(result.error.message).toContain('upload returned no driveItem id');
+  });
+
+  it('convert-mail-attachment-to-pdf returns api_error when upload returns no driveItem id', async () => {
+    // Distinct attachment id so the fake's URL-suffix check differs from the markdown variant's test above.
+    const fetchFn: FetchFn = async (url, init) => {
+      if (url.endsWith('/attachments/aFilePdf')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.fileAttachment', name: 'plan.docx', contentBytes: btoa('docx-bytes') });
+      }
+      if (init?.method === 'PUT') return Response.json({ name: 'no-id' });
+      throw new Error('unexpected');
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-pdf'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-pdf not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aFilePdf' });
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') expect(result.error.message).toContain('upload returned no driveItem id');
+  });
+
+  it('convert-mail-attachment-to-markdown handles a fileAttachment with the upload-convert-delete dance', async () => {
+    let deleteCalled = false;
+    const fetchFn: FetchFn = async (url, init) => {
+      if (url.endsWith('/attachments/aFile')) {
+        return Response.json({ '@odata.type': '#microsoft.graph.fileAttachment', name: 'plan.docx', contentBytes: btoa('docx-bytes') });
+      }
+      if (init?.method === 'PUT') return Response.json({ id: 'temp-i1' });
+      if (url.endsWith('/content?format=html')) return new Response('<h1>Q3</h1>', { status: 200, headers: { 'content-type': 'text/html' } });
+      if (init?.method === 'DELETE') {
+        deleteCalled = true;
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${url}`);
+    };
+    const cmd = cmdMap['convert-mail-attachment-to-markdown'];
+    if (!cmd) throw new Error('convert-mail-attachment-to-markdown not registered');
+    const graph = createGraphClient(fakeAuth(), fetchFn);
+    const result = await cmd.execute(graph, { messageId: 'm1', attachmentId: 'aFile' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const v = result.value as { contentType: string; text: string };
+      expect(v.contentType).toBe('text/markdown');
+      expect(v.text).toContain('# Q3');
+    }
+    expect(deleteCalled).toBe(true);
+  });
+
   it('get-onenote-page-as-markdown turns Graph-returned HTML into a markdown envelope', async () => {
     const fetchFn = stagedFetch([
       {
@@ -907,6 +1435,7 @@ const allCommandFixtures: CommandFixture[] = [
   { name: 'get-mailbox-settings', params: {} },
   { name: 'search-mail-messages', params: { query: 'invoice' } },
   { name: 'extract-sharepoint-links-in-mail', params: { messageId: 'm1' } },
+  { name: 'convert-mail-to-markdown', params: { messageId: 'm1' } },
   { name: 'list-onenote-notebooks', params: {} },
   { name: 'list-onenote-notebook-sections', params: { notebookId: 'n1' } },
   { name: 'list-all-onenote-sections', params: {} },
@@ -965,6 +1494,9 @@ describe('command schema rejection', () => {
     { name: 'get-onenote-page-as-markdown', params: {} },
     { name: 'search-mail-messages', params: {} },
     { name: 'extract-sharepoint-links-in-mail', params: {} },
+    { name: 'convert-mail-to-markdown', params: {} },
+    { name: 'convert-mail-attachment-to-pdf', params: { messageId: 'm1' } },
+    { name: 'convert-mail-attachment-to-markdown', params: { messageId: 'm1' } },
     { name: 'search-my-documents', params: {} },
     { name: 'get-calendar-view', params: {} },
     { name: 'list-calendar-view-delta', params: {} },
@@ -1073,6 +1605,7 @@ const pathFixtures: Array<{ name: string; params: Record<string, string>; expect
   { name: 'get-mailbox-settings', params: {}, expectedPath: '/me/mailboxSettings' },
   { name: 'search-mail-messages', params: { query: 'invoice' }, expectedPath: '/me/messages?$search="invoice"' },
   { name: 'extract-sharepoint-links-in-mail', params: { messageId: 'm1' }, expectedPath: '/me/messages/m1?$select=subject,body' },
+  { name: 'convert-mail-to-markdown', params: { messageId: 'm1' }, expectedPath: '/me/messages/m1?$expand=attachments' },
   { name: 'list-onenote-notebooks', params: {}, expectedPath: '/me/onenote/notebooks' },
   { name: 'list-onenote-notebook-sections', params: { notebookId: 'n1' }, expectedPath: '/me/onenote/notebooks/n1/sections' },
   { name: 'list-all-onenote-sections', params: {}, expectedPath: '/me/onenote/sections' },

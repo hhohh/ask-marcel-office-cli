@@ -1,0 +1,129 @@
+import { z } from 'zod';
+import type { Result } from '../../domain/result.ts';
+import { err, ok } from '../../domain/result.ts';
+import type { GraphClient, GraphError } from '../../infra/graph-client.ts';
+import type { CommandMeta } from './command-types.ts';
+import { buildShareToken } from './sharepoint-link-extractor.ts';
+import { isPlainTextFilename } from './text-passthrough.ts';
+
+const schema = z.object({
+  messageId: z.string().min(1),
+  attachmentId: z.string().min(1),
+});
+
+const decodeBase64 = (b64: string): Uint8Array => {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+};
+
+const safeExtension = (name: string): string => {
+  const dot = name.lastIndexOf('.');
+  if (dot === -1 || dot === name.length - 1) return 'bin';
+  const raw = name.slice(dot + 1).toLowerCase();
+  return /^[a-z0-9]{1,8}$/.test(raw) ? raw : 'bin';
+};
+
+const convertFileAttachment = async (graph: GraphClient, attachment: { name?: string; contentBytes?: string }): Promise<Result<unknown, GraphError>> => {
+  const name = attachment.name ?? 'unnamed';
+  const contentBytes = attachment.contentBytes ?? '';
+  const bytes = decodeBase64(contentBytes);
+
+  // Plain-text source: skip the upload-convert dance, return raw bytes.
+  if (isPlainTextFilename(name)) {
+    return ok({
+      contentType: 'text/plain',
+      size: bytes.byteLength,
+      base64: contentBytes,
+      note: `pre-checked plain-text source (${name}); raw bytes returned without Graph conversion`,
+    });
+  }
+
+  // Hardening #2: UUID-only temp file name; never the attacker filename.
+  const ext = safeExtension(name);
+  const tempName = `${crypto.randomUUID()}.${ext}`;
+  const basePath = `/me/drive/root:/.ask-marcel-temp/${tempName}`;
+
+  const uploaded = await graph.put(basePath, bytes, 'application/octet-stream');
+  if (!uploaded.ok) return uploaded;
+  const uploadedItem = uploaded.value as { id?: string };
+  const itemId = uploadedItem.id;
+  if (typeof itemId !== 'string') {
+    return err({ type: 'api_error', status: 500, message: 'upload returned no driveItem id' });
+  }
+
+  const converted = await graph.getBinary(`/me/drive/items/${itemId}/content?format=pdf`);
+  // Best-effort cleanup; ignore the err if it fails.
+  await graph.delete(`/me/drive/items/${itemId}`);
+  return converted;
+};
+
+const convertReferenceAttachment = async (graph: GraphClient, attachment: { sourceUrl?: string }): Promise<Result<unknown, GraphError>> => {
+  const sourceUrl = attachment.sourceUrl;
+  if (typeof sourceUrl !== 'string' || sourceUrl === '') {
+    return err({ type: 'api_error', status: 400, message: 'referenceAttachment missing sourceUrl' });
+  }
+  const resolved = await graph.get(`/shares/${buildShareToken(sourceUrl)}/driveItem`);
+  if (!resolved.ok) return resolved;
+  const item = resolved.value as { id?: string; name?: string; parentReference?: { driveId?: string } };
+  const driveId = item.parentReference?.driveId;
+  const itemId = item.id;
+  const name = item.name ?? '';
+  if (typeof driveId !== 'string' || typeof itemId !== 'string') {
+    return err({ type: 'api_error', status: 500, message: 'resolved driveItem missing id or driveId' });
+  }
+  if (isPlainTextFilename(name)) {
+    return graph.getBinary(`/drives/${driveId}/items/${itemId}/content`);
+  }
+  return graph.getBinary(`/drives/${driveId}/items/${itemId}/content?format=pdf`);
+};
+
+const execute = async (graph: GraphClient, params: Record<string, string>): Promise<Result<unknown, GraphError>> => {
+  const parsed = schema.safeParse(params);
+  if (!parsed.success) throw new Error(`validation failed: ${parsed.error.message}`);
+  const { messageId, attachmentId } = parsed.data;
+
+  const fetched = await graph.get(`/me/messages/${messageId}/attachments/${attachmentId}`);
+  if (!fetched.ok) return fetched;
+  const a = fetched.value as Record<string, unknown>;
+
+  // FIX #3: discriminator guard for missing or non-string @odata.type.
+  const odataType = a['@odata.type'];
+  if (typeof odataType !== 'string') {
+    return err({ type: 'api_error', status: 400, message: 'attachment response missing @odata.type discriminator' });
+  }
+
+  switch (odataType) {
+    case '#microsoft.graph.fileAttachment':
+      return convertFileAttachment(graph, a as { name?: string; contentBytes?: string });
+    case '#microsoft.graph.referenceAttachment':
+      return convertReferenceAttachment(graph, a as { sourceUrl?: string });
+    case '#microsoft.graph.itemAttachment':
+      return err({
+        type: 'api_error',
+        status: 400,
+        message: 'Graph format=pdf cannot accept embedded mail/event/contact items. Use convert-mail-attachment-to-markdown.',
+      });
+    default:
+      return err({ type: 'api_error', status: 400, message: `unsupported attachment type: ${odataType}` });
+  }
+};
+
+const meta: CommandMeta = {
+  summary:
+    'Convert an Outlook mail attachment to PDF on the fly. Polymorphic on the attachment’s `@odata.type`: fileAttachment uploads the bytes to a temp folder under /me/drive (large files use Graph’s chunked upload session — no 4 MB ceiling), runs ?format=pdf, then deletes the temp item; referenceAttachment resolves via /shares/{token}/driveItem and runs ?format=pdf in place; plain-text source extensions short-circuit to a raw-bytes envelope on either path. itemAttachment (embedded mail/event/contact) is unsupported here — Graph rejects those source types — use convert-mail-attachment-to-markdown instead. Worst-case wall-clock for huge attachments is ~22 minutes (1 metadata GET + up-to-20 chunk PUTs + 1 convert GET + 1 cleanup DELETE, each capped at 60s).',
+  category: 'mail',
+  graphMethod: 'GET',
+  graphPathTemplate: '/me/messages/{message-id}/attachments/{attachment-id}',
+  graphDocsUrl: 'https://learn.microsoft.com/en-us/graph/api/attachment-get',
+  options: [
+    { name: 'message-id', key: 'messageId', required: true, description: 'Outlook message ID. Returned by `list-mail-messages` or `list-mail-folder-messages`.' },
+    { name: 'attachment-id', key: 'attachmentId', required: true, description: 'Attachment ID inside that message. Returned by `list-mail-attachments`.' },
+  ],
+  example: "ask-marcel convert-mail-attachment-to-pdf --message-id 'AAMkAD...' --attachment-id 'AAMkAD...attach1'",
+  responseShape:
+    '`{ "@microsoft.graph.downloadUrl": "..." }` for the typical converted-file 302 case, or `{ contentType, size, base64, note }` envelope for plain-text source extensions; itemAttachment returns an api_error with status 400.',
+};
+
+export { execute, meta, schema };
