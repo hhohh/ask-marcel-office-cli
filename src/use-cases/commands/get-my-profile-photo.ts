@@ -3,12 +3,13 @@ import type { Result } from '../../domain/result.ts';
 import { err } from '../../domain/result.ts';
 import type { GraphClient, GraphError } from '../../infra/graph-client.ts';
 import type { CommandMeta } from './command-types.ts';
+import { formatZodError } from './format-zod-error.ts';
 
 const schema = z.object({}).strict();
 
 const execute = async (graph: GraphClient, params: Record<string, string>): Promise<Result<unknown, GraphError>> => {
   const parsed = schema.safeParse(params);
-  if (!parsed.success) return err({ type: 'validation_error', message: parsed.error.message });
+  if (!parsed.success) return err({ type: 'validation_error', message: formatZodError(parsed.error) });
   return graph.getBinary('/me/photo/$value');
 };
 

@@ -201,6 +201,20 @@ describe('graph client', () => {
     if (result.ok) expect((result.value as { text: string }).text).toBe('<html>converted</html>');
   });
 
+  it('fetchUrl sends a permissive Accept header so the Office Online CDN does not return 406 Not Acceptable', async () => {
+    let capturedAccept: string | null = null;
+    const fetchFn: FetchFn = async (_url, init) => {
+      const headers = new Headers(init?.headers);
+      capturedAccept = headers.get('accept');
+      return new Response('<html>x</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    await client.fetchUrl('https://francecentral1-mediap.svc.ms/transform/htmlview');
+    expect(capturedAccept).not.toBeNull();
+    expect(capturedAccept ?? '').toContain('text/html');
+    expect(capturedAccept ?? '').toContain('*/*');
+  });
+
   it('fetchUrl rejects unparseable URL strings as a clear network_error', async () => {
     const client = createGraphClient(fakeAuth(), (async () => new Response()) as FetchFn);
     const result = await client.fetchUrl('not-a-url');

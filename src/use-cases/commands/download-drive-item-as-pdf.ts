@@ -4,12 +4,13 @@ import { err } from '../../domain/result.ts';
 import type { GraphClient, GraphError } from '../../infra/graph-client.ts';
 import type { CommandMeta } from './command-types.ts';
 import { isPlainTextFilename } from './text-passthrough.ts';
+import { formatZodError } from './format-zod-error.ts';
 
 const schema = z.object({ driveId: z.string().min(1), itemId: z.string().min(1) });
 
 const execute = async (graph: GraphClient, params: Record<string, string>): Promise<Result<unknown, GraphError>> => {
   const parsed = schema.safeParse(params);
-  if (!parsed.success) return err({ type: 'validation_error', message: parsed.error.message });
+  if (!parsed.success) return err({ type: 'validation_error', message: formatZodError(parsed.error) });
   const { driveId, itemId } = parsed.data;
 
   // Pre-fetch the driveItem metadata to read its filename. Graph's

@@ -14,6 +14,7 @@ import {
 import { convertToMarkdown } from './markdown-pipeline.ts';
 import { buildShareToken } from './sharepoint-link-extractor.ts';
 import { isPlainTextFilename } from './text-passthrough.ts';
+import { formatZodError } from './format-zod-error.ts';
 
 const schema = z.object({
   messageId: z.string().min(1),
@@ -114,7 +115,7 @@ const convertItemAttachment = (attachment: { item?: Record<string, unknown> }): 
 
 const execute = async (graph: GraphClient, params: Record<string, string>): Promise<Result<unknown, GraphError>> => {
   const parsed = schema.safeParse(params);
-  if (!parsed.success) return err({ type: 'validation_error', message: parsed.error.message });
+  if (!parsed.success) return err({ type: 'validation_error', message: formatZodError(parsed.error) });
   const { messageId, attachmentId } = parsed.data;
 
   const fetched = await graph.get(`/me/messages/${messageId}/attachments/${attachmentId}`);

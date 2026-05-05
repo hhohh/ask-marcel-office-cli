@@ -4,6 +4,7 @@ import { err, ok } from '../../domain/result.ts';
 import type { GraphClient, GraphError } from '../../infra/graph-client.ts';
 import type { CommandMeta } from './command-types.ts';
 import { buildShareToken, extractSharepointUrls } from './sharepoint-link-extractor.ts';
+import { formatZodError } from './format-zod-error.ts';
 
 const MAX_LINKS = 25; // Hardening #4: cap fan-out
 
@@ -42,7 +43,7 @@ const resolveOne = async (graph: GraphClient, url: string): Promise<ResolvedLink
 
 const execute = async (graph: GraphClient, params: Record<string, string>): Promise<Result<LinkExtractionSummary, GraphError>> => {
   const parsed = schema.safeParse(params);
-  if (!parsed.success) return err({ type: 'validation_error', message: parsed.error.message });
+  if (!parsed.success) return err({ type: 'validation_error', message: formatZodError(parsed.error) });
   const { messageId } = parsed.data;
 
   // 1. Pull the mail subject + body.
