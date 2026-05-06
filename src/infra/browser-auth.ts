@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import type { AccessToken } from '../domain/access-token.ts';
 import { accessToken } from '../domain/access-token.ts';
+import { decodeJwtPayload } from '../domain/jwt-utils.ts';
 import type { FileSystem } from '../use-cases/ports/filesystem.ts';
 import type { Logger } from '../use-cases/ports/logger.ts';
 import { createBunFileSystem } from './filesystem-bun.ts';
@@ -11,6 +12,19 @@ type BrowserTokenResult = { accessToken: AccessToken; refreshToken: string | nul
 
 type BrowserAuth = {
   acquireToken: (scopes: string[], startUrl: string) => Promise<BrowserTokenResult | null>;
+  /**
+   * Capture an "elevated" Graph access token by navigating to a
+   * different Microsoft web app whose first-party app identity is on
+   * Microsoft's allow-list for ODSP `logicalPermissions` (the scope our
+   * Teams web client token lacks for historical-version stream
+   * content). Reuses the persistent profile cookies — no second
+   * sign-in. Headless by default.
+   *
+   * Returns null on cancellation / timeout. The caller decides whether
+   * the failure is fatal (it isn't for most commands; only the version
+   * commands need this).
+   */
+  acquireElevatedToken: () => Promise<AccessToken | null>;
   close: () => Promise<void>;
 };
 
@@ -24,6 +38,7 @@ type ResponseHandler = (response: ResponseLike) => void;
 
 type PageLike = {
   on(event: 'response', handler: ResponseHandler): void;
+  on(event: 'request', handler: RequestHandler): void;
   goto(url: string, options: { waitUntil: 'domcontentloaded'; timeout: number }): Promise<unknown>;
   url(): string;
   evaluate(fn: () => void): Promise<unknown>;
@@ -41,6 +56,13 @@ type LaunchOptions = {
   channel?: 'msedge' | 'chrome';
   args: string[];
 };
+
+type RequestLike = {
+  url(): string;
+  headers(): Record<string, string>;
+};
+
+type RequestHandler = (request: RequestLike) => void;
 
 type BrowserAuthApi = {
   launchPersistentContext(profileDir: string, options: LaunchOptions): Promise<ContextLike>;
@@ -67,6 +89,23 @@ type BrowserAuthConfig = {
 };
 
 const TOKEN_HOSTS = ['login.microsoftonline.com', 'login.live.com', 'login.microsoft.com'];
+
+/**
+ * App identities first-party Microsoft web apps use against Graph that
+ * (verified 2026-05) are enrolled in ODSP `logicalPermissions` for
+ * historical-version stream content — i.e., Bearer tokens issued under
+ * these appids fetch /drives/{}/items/{}/versions/{ver}/content
+ * successfully where the Teams web client (5e3ce6c0-...) hits a 403.
+ *
+ * Listed in priority order — the first match found while waiting for
+ * the elevated capture wins.
+ */
+const ELEVATED_APP_IDS: ReadonlyArray<string> = [
+  'c0ab8ce9-e9a0-42e7-b064-33d422df41f1', // M365ChatClient
+  '4765445b-32c6-49b0-83e6-1d93765276ca', // OfficeHome (Graph audience also has the right scopes)
+];
+
+const M365_CLOUD_URL = 'https://m365.cloud.microsoft';
 
 const PROXY_ENV_KEYS = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'];
 
@@ -131,16 +170,16 @@ const createBrowserAuthFromApi = (api: BrowserAuthApi, config: BrowserAuthConfig
     }
   };
 
-  const launchContext = async (): Promise<ContextLike> => {
+  const launchContext = async (headless: boolean): Promise<ContextLike> => {
     for (const channel of ['msedge', 'chrome'] as const) {
       try {
         const ctx = await api.launchPersistentContext(profileDir, {
-          headless: false,
+          headless,
           channel,
           args: ['--disable-blink-features=AutomationControlled'],
         });
-        logger.info('browser_launched', { channel });
-        trace(`[DEBUG] browser launched with channel: ${channel}\n`);
+        logger.info('browser_launched', { channel, headless });
+        trace(`[DEBUG] browser launched with channel: ${channel} (headless=${headless})\n`);
         return ctx;
       } catch {
         logger.info('browser_launch_failed', { channel });
@@ -148,11 +187,11 @@ const createBrowserAuthFromApi = (api: BrowserAuthApi, config: BrowserAuthConfig
       }
     }
     const ctx = await api.launchPersistentContext(profileDir, {
-      headless: false,
+      headless,
       args: ['--disable-blink-features=AutomationControlled'],
     });
-    logger.info('browser_launched', { channel: 'bundled' });
-    trace('[DEBUG] browser launched with channel: bundled\n');
+    logger.info('browser_launched', { channel: 'bundled', headless });
+    trace(`[DEBUG] browser launched with channel: bundled (headless=${headless})\n`);
     return ctx;
   };
 
@@ -162,7 +201,7 @@ const createBrowserAuthFromApi = (api: BrowserAuthApi, config: BrowserAuthConfig
     let capturedAccess: AccessToken | null = null;
     let capturedRefresh: string | null = null;
 
-    context = await launchContext();
+    context = await launchContext(false);
     page = await context.newPage();
     const activePage = page;
 
@@ -252,12 +291,100 @@ const createBrowserAuthFromApi = (api: BrowserAuthApi, config: BrowserAuthConfig
     return null;
   };
 
+  /**
+   * Capture an elevated Graph token by navigating to m365.cloud.microsoft
+   * (or another candidate Microsoft web app). The persistent profile's
+   * SSO cookies do the auth silently — no UI prompt — provided the user
+   * has previously completed the Teams login.
+   *
+   * Strategy: intercept outgoing `Authorization: Bearer ...` headers,
+   * decode each JWT, return the first one whose `appid` is on the
+   * ODSP-elevated allow-list.
+   */
+  const acquireElevatedToken = async (): Promise<AccessToken | null> => {
+    await cleanupSingletonLocks(profileDir, fs);
+
+    let captured: AccessToken | null = null;
+
+    // Headless flakiness with Microsoft anti-automation has been
+    // observed on m365.cloud.microsoft — the SPA sometimes refuses to
+    // run its OAuth dance in headless mode. Visible launch is the
+    // safer default. The window opens and closes within seconds; user
+    // sees a brief flash but no interaction is required.
+    const elevatedCtx = await launchContext(false);
+    const elevatedPage = await elevatedCtx.newPage();
+
+    elevatedPage.on('request', (req) => {
+      if (captured) return;
+      const auth = req.headers()['authorization'];
+      if (typeof auth !== 'string' || !auth.startsWith('Bearer ')) return;
+      const raw = auth.slice('Bearer '.length);
+      const claims = decodeJwtPayload(raw);
+      const appid = typeof claims['appid'] === 'string' ? (claims['appid'] as string) : undefined;
+      const aud = typeof claims['aud'] === 'string' ? (claims['aud'] as string) : undefined;
+      if (!appid || !aud) return;
+      if (!ELEVATED_APP_IDS.includes(appid)) return;
+      if (aud !== 'https://graph.microsoft.com') return;
+      const validated = accessToken(raw);
+      if (!validated.ok) return;
+      captured = validated.value;
+      logger.info('elevated_token_captured', { appid, len: validated.value.length });
+      trace(`[DEBUG] elevated token captured  appid=${appid}  len=${validated.value.length}\n`);
+    });
+
+    logger.info('browser_navigating', { url: M365_CLOUD_URL, purpose: 'elevated' });
+    trace(`[DEBUG] elevated capture: navigating to ${M365_CLOUD_URL}\n`);
+    try {
+      await elevatedPage.goto(M365_CLOUD_URL, { waitUntil: 'domcontentloaded', timeout: navigationTimeoutMs });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      trace(`[DEBUG] elevated nav error (non-fatal): ${msg}\n`);
+    }
+
+    // Settle: typical capture happens within 3-8s of domcontentloaded
+    // when SSO cookies are warm; can be 15-25s on a cold profile while
+    // m365.cloud.microsoft completes its bootstrap. 60s is generous;
+    // capped well below the regular login flow's 5min poll deadline.
+    const elevatedDeadline = Date.now() + Math.min(pollDeadlineMs, 60_000);
+    while (Date.now() < elevatedDeadline) {
+      if (captured) {
+        trace('[DEBUG] elevated capture: token found, closing\n');
+        try {
+          await elevatedPage.close();
+        } catch {
+          // ignore
+        }
+        try {
+          await elevatedCtx.close();
+        } catch {
+          // ignore
+        }
+        return captured;
+      }
+      await sleep(pollIntervalMs);
+    }
+
+    trace('[DEBUG] elevated capture: deadline expired, no elevated token captured\n');
+    logger.info('elevated_token_capture_timeout');
+    try {
+      await elevatedPage.close();
+    } catch {
+      // ignore
+    }
+    try {
+      await elevatedCtx.close();
+    } catch {
+      // ignore
+    }
+    return null;
+  };
+
   const close = async (): Promise<void> => {
     logger.info('browser_auth_close');
     await cleanup();
   };
 
-  return { acquireToken, close };
+  return { acquireToken, acquireElevatedToken, close };
 };
 
 const defaultFileSystem = (): FileSystem => (typeof globalThis.Bun !== 'undefined' ? createBunFileSystem() : createNodeFileSystem());
@@ -266,4 +393,4 @@ const createBrowserAuth = (deps: { logger: Logger; fs?: FileSystem }): BrowserAu
   createBrowserAuthFromApi(createPlaywrightApi(loadPlaywright), { logger: deps.logger, fs: deps.fs ?? defaultFileSystem() });
 
 export { createBrowserAuth, createBrowserAuthFromApi, createPlaywrightApi };
-export type { BrowserAuth, BrowserAuthApi, BrowserAuthConfig, BrowserTokenResult, ChromiumLike, ContextLike, PageLike, PlaywrightLoader, ResponseLike };
+export type { BrowserAuth, BrowserAuthApi, BrowserAuthConfig, BrowserTokenResult, ChromiumLike, ContextLike, PageLike, PlaywrightLoader, RequestLike, ResponseLike };

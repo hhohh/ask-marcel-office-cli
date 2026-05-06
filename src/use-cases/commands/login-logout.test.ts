@@ -11,7 +11,11 @@ describe('login command', () => {
   });
 
   it('propagates auth errors', async () => {
-    const fakeAuth = { getAccessToken: async () => err({ type: 'auth_cancelled' as const }), logout: async () => ok(undefined) };
+    const fakeAuth = {
+      getAccessToken: async () => err({ type: 'auth_cancelled' as const }),
+      getElevatedAccessToken: async () => err({ type: 'auth_cancelled' as const }),
+      logout: async () => ok(undefined),
+    };
     const result = await login(fakeAuth);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.type).toBe('auth_cancelled');
@@ -23,6 +27,7 @@ describe('logout command', () => {
     let called = false;
     const fakeAuth = {
       getAccessToken: async () => ok('x'),
+      getElevatedAccessToken: async () => ({ ok: false as const, error: { type: 'auth_cancelled' as const } }),
       logout: async () => {
         called = true;
         return ok(undefined);

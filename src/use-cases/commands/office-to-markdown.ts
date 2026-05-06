@@ -36,18 +36,22 @@ const extensionOf = (filename: string): string => {
   return filename.slice(dot + 1).toLowerCase();
 };
 
+type FetchOptions = { readonly elevated?: boolean };
+
 /**
  * Real Graph responses for `/drives/{id}/items/{id}/content` are 302
  * redirects to a CDN URL. `getBinary` captures that and returns
  * `{ '@microsoft.graph.downloadUrl': '...' }` — NOT inline bytes.
  * To actually get the bytes we have to follow the URL via `fetchUrl`.
  *
- * Inline-bytes envelopes (`{ base64 }` / `{ text }`) only happen when
- * Graph serves the bytes directly without redirecting (rare, e.g. very
- * small files in some tenants). The decoder handles both cases.
+ * The historical-version commands pass `elevated: true` so that the
+ * initial Graph call is signed with an M365ChatClient token (on the
+ * ODSP `logicalPermissions` allow-list); without that, Graph's 302
+ * redirects to a streamContent URL whose embedded tempauth is signed
+ * by Teams web client identity and rejected by SharePoint with 403.
  */
-const fetchRawBytes = async (graph: GraphClient, contentPath: string): Promise<Result<Uint8Array, GraphError>> => {
-  const initial = await graph.getBinary(contentPath);
+const fetchRawBytes = async (graph: GraphClient, contentPath: string, opts: FetchOptions = {}): Promise<Result<Uint8Array, GraphError>> => {
+  const initial = opts.elevated ? await graph.getBinaryElevated(contentPath) : await graph.getBinary(contentPath);
   if (!initial.ok) return initial;
   const value = initial.value as Record<string, unknown>;
 
@@ -75,14 +79,14 @@ const decodeBlobBytes = (blob: Record<string, unknown>): Result<Uint8Array, Grap
   return err({ type: 'api_error', status: 500, message: 'unexpected envelope: response had no @microsoft.graph.downloadUrl, no base64 bytes, and no text body' });
 };
 
-const officeToMarkdown = async (graph: GraphClient, contentPath: string, filename: string): Promise<Result<unknown, GraphError>> => {
+const officeToMarkdown = async (graph: GraphClient, contentPath: string, filename: string, opts: FetchOptions = {}): Promise<Result<unknown, GraphError>> => {
   if (isPlainTextFilename(filename)) {
-    return graph.getBinary(contentPath);
+    return opts.elevated ? graph.getBinaryElevated(contentPath) : graph.getBinary(contentPath);
   }
   const ext = extensionOf(filename);
 
   if (ext === 'csv') {
-    const bytes = await fetchRawBytes(graph, contentPath);
+    const bytes = await fetchRawBytes(graph, contentPath, opts);
     if (!bytes.ok) return bytes;
     const csv = new TextDecoder().decode(bytes.value);
     const md = csvToMarkdownTable(csv);
@@ -90,13 +94,13 @@ const officeToMarkdown = async (graph: GraphClient, contentPath: string, filenam
   }
 
   if (ext === 'docx') {
-    const bytes = await fetchRawBytes(graph, contentPath);
+    const bytes = await fetchRawBytes(graph, contentPath, opts);
     if (!bytes.ok) return bytes;
     return docxToMarkdown(bytes.value);
   }
 
   if (ext === 'xlsx') {
-    const bytes = await fetchRawBytes(graph, contentPath);
+    const bytes = await fetchRawBytes(graph, contentPath, opts);
     if (!bytes.ok) return bytes;
     return xlsxToMarkdown(bytes.value);
   }
@@ -113,3 +117,4 @@ const officeToMarkdown = async (graph: GraphClient, contentPath: string, filenam
 };
 
 export { officeToMarkdown };
+export type { FetchOptions };

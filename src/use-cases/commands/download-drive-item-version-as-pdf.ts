@@ -27,14 +27,14 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
   const name = (meta.value as { name?: string }).name ?? '';
 
   if (isPlainTextFilename(name) || isPdfSource(name)) {
-    return graph.getBinary(`/drives/${driveId}/items/${itemId}/versions/${versionId}/content`);
+    return graph.getBinaryElevated(`/drives/${driveId}/items/${itemId}/versions/${versionId}/content`);
   }
-  return graph.getBinary(`/drives/${driveId}/items/${itemId}/versions/${versionId}/content?format=pdf`);
+  return graph.getBinaryElevated(`/drives/${driveId}/items/${itemId}/versions/${versionId}/content?format=pdf`);
 };
 
 const meta: CommandMeta = {
   summary:
-    'Convert a *historical version* of a OneDrive / SharePoint file to PDF and return the URL. Same shape as `download-drive-item-as-pdf` plus a `--version-id`. Graph refuses to serve the *current* version through this endpoint — for the current version use `download-drive-item-as-pdf`. Plain-text source extensions and `pdf` sources short-circuit to a raw-bytes URL. **Known Teams-token limit:** the returned URL 403s with `logicalPermissionAccessDenied` when actually fetched (the Teams web client token does not grant historical-version stream access — see https://aka.ms/ODSPS2SAuthOnboarding). The URL is well-formed and works in environments with elevated ODSP scopes.',
+    'Convert a *historical version* of a OneDrive / SharePoint file to PDF and return the URL. Same shape as `download-drive-item-as-pdf` plus a `--version-id`. Graph refuses to serve the *current* version through this endpoint — for the current version use `download-drive-item-as-pdf`. Plain-text source extensions and `pdf` sources short-circuit to a raw-bytes URL. Returned URLs embed an ODSP-elevated tempauth (M365ChatClient identity captured at login) so they actually fetch when followed downstream.',
   category: 'drive',
   graphMethod: 'GET',
   graphPathTemplate: '/drives/{drive-id}/items/{item-id}/versions/{version-id}/content?format=pdf',

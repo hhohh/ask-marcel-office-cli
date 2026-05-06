@@ -176,7 +176,11 @@ const cmdMap: Record<string, { execute: typeof listDrives.execute }> = {
   'next-page': nextPage,
 };
 
-const fakeAuth = (): AuthManager => ({ getAccessToken: async () => ok(accessTokenUnsafe('test-token')), logout: async () => ok(undefined) });
+const fakeAuth = (): AuthManager => ({
+  getAccessToken: async () => ok(accessTokenUnsafe('test-token')),
+  getElevatedAccessToken: async () => ok(accessTokenUnsafe('test-elevated-token')),
+  logout: async () => ok(undefined),
+});
 
 type FakeFetch = ((url: string, init?: RequestInit) => Promise<Response>) & { lastUrl: string | null; lastBody: string | null };
 
@@ -542,53 +546,6 @@ describe('commands', () => {
     if (result.ok) {
       const v = result.value as { text: string };
       expect(v.text).toContain('## Sheet1');
-    }
-  });
-
-  it('download-drive-item-version-as-markdown translates the 403 logicalPermissionAccessDenied wall into actionable guidance pointing at the current-version sibling', async () => {
-    const docxBytes = await buildSampleDocx();
-    const fetchFn = stagedFetch([
-      { urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1', method: 'GET', response: Response.json({ name: 'report.docx' }) },
-      {
-        urlPrefix: 'https://graph.microsoft.com/v1.0/drives/d1/items/i1/versions/3.0/content',
-        method: 'GET',
-        response: () =>
-          new Response(docxBytes as unknown as BodyInit, {
-            status: 302,
-            headers: { location: 'https://contoso.sharepoint.com/_api/v2.0/drives/d1/items/i1/versions/3.0/streamContent' },
-          }),
-      },
-      {
-        urlPrefix: 'https://contoso.sharepoint.com/',
-        method: 'GET',
-        response: () =>
-          new Response(
-            JSON.stringify({
-              error: {
-                code: 'accessDenied',
-                innerError: { code: 'logicalPermissionAccessDenied' },
-                message: 'The calling application is enrolled in logical permissions and is not permitted to call this API.',
-              },
-            }),
-            {
-              status: 403,
-              statusText: 'Forbidden',
-              headers: { 'content-type': 'application/json' },
-            }
-          ),
-      },
-    ]);
-    const cmd = cmdMap['download-drive-item-version-as-markdown'];
-    if (!cmd) throw new Error('download-drive-item-version-as-markdown not registered');
-    const graph = createGraphClient(fakeAuth(), fetchFn);
-    const result = await cmd.execute(graph, { driveId: 'd1', itemId: 'i1', versionId: '3.0' });
-    expect(result.ok).toBe(false);
-    if (!result.ok && result.error.type === 'api_error') {
-      expect(result.error.status).toBe(403);
-      expect(result.error.message).toContain('historical-version stream content is blocked');
-      expect(result.error.message).toContain('Teams web client token');
-      expect(result.error.message).toContain('download-drive-item-as-markdown');
-      expect(result.error.message).toContain('aka.ms/ODSPS2SAuthOnboarding');
     }
   });
 

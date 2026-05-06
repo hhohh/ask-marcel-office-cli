@@ -25,16 +25,19 @@ const captureStream = async (stream: 'stdout' | 'stderr', run: () => void | Prom
 
 const okAuth = (): AuthManager => ({
   getAccessToken: async () => ({ ok: true, value: accessTokenUnsafe('tok') }),
+  getElevatedAccessToken: async () => ({ ok: false, error: { type: 'auth_cancelled' as const } }),
   logout: async () => ({ ok: true, value: undefined }),
 });
 
 const cancelledAuth = (): AuthManager => ({
   getAccessToken: async () => ({ ok: false, error: { type: 'auth_cancelled' } as AuthError }),
+  getElevatedAccessToken: async () => ({ ok: false, error: { type: 'auth_cancelled' as const } }),
   logout: async () => ({ ok: false, error: { type: 'auth_cancelled' } as AuthError }),
 });
 
 const failedAuth = (): AuthManager => ({
   getAccessToken: async () => ({ ok: false, error: { type: 'auth_failed', message: 'browser launch failed' } as AuthError }),
+  getElevatedAccessToken: async () => ({ ok: false, error: { type: 'auth_cancelled' as const } }),
   logout: async () => ({ ok: false, error: { type: 'auth_failed', message: 'rm denied' } as AuthError }),
 });
 
@@ -42,6 +45,7 @@ const okGraph = (value: unknown): GraphClient => ({
   get: async () => ({ ok: true, value }),
   post: async () => ({ ok: true, value }),
   getBinary: async () => ({ ok: true, value }),
+  getBinaryElevated: async () => ({ ok: true, value: {} }),
   fetchUrl: async () => ({ ok: true, value }),
   put: async () => ({ ok: true, value }),
   delete: async () => ({ ok: true, value }),
@@ -51,6 +55,7 @@ const errGraph = (error: GraphError): GraphClient => ({
   get: async () => ({ ok: false, error }),
   post: async () => ({ ok: false, error }),
   getBinary: async () => ({ ok: false, error }),
+  getBinaryElevated: async () => ({ ok: true, value: {} }),
   fetchUrl: async () => ({ ok: false, error }),
   put: async () => ({ ok: false, error }),
   delete: async () => ({ ok: false, error }),
@@ -140,6 +145,7 @@ describe('buildCli command surface', () => {
       },
       post: async () => ({ ok: true, value: {} }),
       getBinary: async () => ({ ok: true, value: {} }),
+      getBinaryElevated: async () => ({ ok: true, value: {} }),
       fetchUrl: async () => ({ ok: true, value: {} }),
       put: async () => ({ ok: true, value: {} }),
       delete: async () => ({ ok: true, value: {} }),
@@ -159,6 +165,7 @@ describe('buildCli command surface', () => {
       },
       post: async () => ({ ok: true, value: {} }),
       getBinary: async () => ({ ok: true, value: {} }),
+      getBinaryElevated: async () => ({ ok: true, value: {} }),
       fetchUrl: async () => ({ ok: true, value: {} }),
       put: async () => ({ ok: true, value: {} }),
       delete: async () => ({ ok: true, value: {} }),
