@@ -1,7 +1,7 @@
 {
   "package": "ask-marcel-office-cli",
-  "version": "0.7.4",
-  "generatedAt": "2026-05-06T01:58:08.782Z",
+  "version": "0.8.0",
+  "generatedAt": "2026-05-06T07:09:50.107Z",
   "commands": [
     {
       "name": "convert-mail-attachment-to-markdown",
@@ -119,7 +119,7 @@
     },
     {
       "name": "download-drive-item-version-as-markdown",
-      "summary": "Download a *historical version* of a OneDrive / SharePoint file converted to markdown. **Known Teams-token limit:** Microsoft’s SharePoint streamContent endpoint blocks the Teams web client token with `403 logicalPermissionAccessDenied` for historical-version bytes — the command can fetch the bytes for the *current* version (no --version-id) but not for older versions. Same local conversion pipeline as `download-drive-item-as-markdown`: docx via mammoth, xlsx via sheetjs (markdown tables per sheet), csv as a markdown table, plus plain-text passthrough. For pptx use `download-drive-item-version-as-pdf` (which returns a URL — though that URL hits the same Teams-token wall when followed). Loop/Fluid/Whiteboard use Graph `?format=html` (the four inputs Microsoft documents).",
+      "summary": "Download a *historical version* of a OneDrive / SharePoint file converted to markdown. Same local conversion pipeline as `download-drive-item-as-markdown`: docx via mammoth, xlsx via sheetjs (markdown tables per sheet), csv as a markdown table, plus plain-text passthrough. Uses an elevated Graph token (captured at login from m365.cloud.microsoft / M365ChatClient) for the bytes-fetch, since the Teams web client token cannot fetch historical-version stream content (returns 403 logicalPermissionAccessDenied). For pptx use `download-drive-item-version-as-pdf`. Loop/Fluid/Whiteboard use Graph `?format=html` (the four inputs Microsoft documents).",
       "category": "drive",
       "graphMethod": "GET",
       "graphPathTemplate": "/drives/{drive-id}/items/{item-id}/versions/{version-id}/content?format=html",
@@ -149,7 +149,7 @@
     },
     {
       "name": "download-drive-item-version-as-pdf",
-      "summary": "Convert a *historical version* of a OneDrive / SharePoint file to PDF and return the URL. Same shape as `download-drive-item-as-pdf` plus a `--version-id`. Graph refuses to serve the *current* version through this endpoint — for the current version use `download-drive-item-as-pdf`. Plain-text source extensions and `pdf` sources short-circuit to a raw-bytes URL. **Known Teams-token limit:** the returned URL 403s with `logicalPermissionAccessDenied` when actually fetched (the Teams web client token does not grant historical-version stream access — see https://aka.ms/ODSPS2SAuthOnboarding). The URL is well-formed and works in environments with elevated ODSP scopes.",
+      "summary": "Convert a *historical version* of a OneDrive / SharePoint file to PDF and return the URL. Same shape as `download-drive-item-as-pdf` plus a `--version-id`. Graph refuses to serve the *current* version through this endpoint — for the current version use `download-drive-item-as-pdf`. Plain-text source extensions and `pdf` sources short-circuit to a raw-bytes URL. Returned URLs embed an ODSP-elevated tempauth (M365ChatClient identity captured at login) so they actually fetch when followed downstream.",
       "category": "drive",
       "graphMethod": "GET",
       "graphPathTemplate": "/drives/{drive-id}/items/{item-id}/versions/{version-id}/content?format=pdf",
@@ -179,7 +179,7 @@
     },
     {
       "name": "download-drive-item-version-content",
-      "summary": "Return the SharePoint streamContent URL for a *non-current* historical version of a OneDrive / SharePoint file. Graph refuses to serve the current version through this endpoint with \"You cannot get the content of the current version\" — for the current version use `download-onedrive-file-content`. **Known Teams-token limit:** the URL this command returns 403s with `logicalPermissionAccessDenied` when actually fetched (the Teams web client token does not grant historical-version stream access — see https://aka.ms/ODSPS2SAuthOnboarding). The URL itself is well-formed and works in environments with elevated ODSP scopes.",
+      "summary": "Return the SharePoint streamContent URL for a *non-current* historical version of a OneDrive / SharePoint file. Graph refuses to serve the current version through this endpoint with \"You cannot get the content of the current version\" — for the current version use `download-onedrive-file-content`. The returned URL embeds an ODSP-elevated tempauth (signed via the M365ChatClient identity captured at login) so that fetching it downstream returns the bytes rather than the 403 the Teams web client token would produce.",
       "category": "drive",
       "graphMethod": "GET",
       "graphPathTemplate": "/drives/{drive-id}/items/{item-id}/versions/{version-id}/content",

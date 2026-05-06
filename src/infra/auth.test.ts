@@ -132,6 +132,23 @@ describe('auth manager recovery ladder', () => {
     if (!result.ok) expect(result.error.type).toBe('auth_failed');
   });
 
+  it('returns auth_failed when browser throws a non-Error value (covers String(e) fallback in acquireViaBrowser outer catch)', async () => {
+    const fs = createFileSystemFake();
+    const stringThrower: BrowserAuth = {
+      acquireToken: async () => {
+        throw 'edge process killed';
+      },
+      acquireElevatedToken: async () => null,
+      close: async () => {},
+    };
+    const auth = createAuthManagerFromApi(stringThrower, CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.getAccessToken();
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'auth_failed') {
+      expect(result.error.message).toBe('edge process killed');
+    }
+  });
+
   it('skips browser when cached token has wrong audience', async () => {
     const future = Math.floor(Date.now() / 1000) + 3600;
     const header = btoa(JSON.stringify({ alg: 'RS256' }));
@@ -158,6 +175,27 @@ describe('auth manager recovery ladder', () => {
 
     const result = await auth.logout();
     expect(result.ok).toBe(true);
+    expect(fs.has(CACHE_PATH)).toBe(false);
+  });
+
+  it('still clears cache on logout when browser close throws a non-Error value (covers String(e) fallback in logout catch)', async () => {
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const fs = createFileSystemFake();
+    fs.seed(CACHE_PATH, JSON.stringify({ access_token: 'token', expires_on: future, refresh_token: 'refresh' }));
+
+    const stringThrower: BrowserAuth = {
+      acquireToken: async () => null,
+      acquireElevatedToken: async () => null,
+      close: async () => {
+        throw 'edge crashed during close';
+      },
+    };
+    const auth = createAuthManagerFromApi(stringThrower, CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.logout();
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'auth_failed') {
+      expect(result.error.message).toBe('edge crashed during close');
+    }
     expect(fs.has(CACHE_PATH)).toBe(false);
   });
 
@@ -272,6 +310,27 @@ describe('auth manager elevated token', () => {
     expect(persisted.ok && persisted.value.elevated_access_token).toBe(captured);
   });
 
+  it('re-captures when cached elevated token is missing the expires_on field (corrupted cache)', async () => {
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const fs = createFileSystemFake();
+    // elevated_access_token present, elevated_expires_on missing
+    fs.seed(CACHE_PATH, JSON.stringify({ access_token: 'teams-tok', expires_on: future, refresh_token: 'r', elevated_access_token: 'orphan-token' }));
+    const captured = futureElevated();
+    const auth = createAuthManagerFromApi(fakeBrowserAuth({ elevatedResult: captured }), CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.getElevatedAccessToken();
+    expect(result).toEqual(ok(captured));
+  });
+
+  it('re-captures when cached elevated token is fresh by clock but malformed (covers `if (validated.ok)` false branch)', async () => {
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const fs = createFileSystemFake();
+    fs.seed(CACHE_PATH, JSON.stringify({ access_token: 'teams-tok', expires_on: future, refresh_token: 'r', elevated_access_token: '', elevated_expires_on: future }));
+    const captured = futureElevated();
+    const auth = createAuthManagerFromApi(fakeBrowserAuth({ elevatedResult: captured }), CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.getElevatedAccessToken();
+    expect(result).toEqual(ok(captured));
+  });
+
   it('re-captures when the cached elevated token is expired', async () => {
     const past = Math.floor(Date.now() / 1000) - 3600;
     const future = Math.floor(Date.now() / 1000) + 3600;
@@ -356,6 +415,120 @@ describe('auth manager elevated token', () => {
       close: async () => {},
     };
     const auth = createAuthManagerFromApi(throwingElevated, CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.getAccessToken();
+    expect(result.ok).toBe(true);
+  });
+
+  it('refresh falls through to browser when fetch itself throws (covers refreshToken catch block)', async () => {
+    const mock = installFetchMock([
+      {
+        match: (url) => url.includes('/token'),
+        respond: () => {
+          throw new Error('connection refused');
+        },
+      },
+    ]);
+    afterEach(() => mock.restore());
+
+    const past = Math.floor(Date.now() / 1000) - 100;
+    const fs = createFileSystemFake();
+    fs.seed(CACHE_PATH, JSON.stringify({ access_token: 'expired', expires_on: past, refresh_token: 'old-refresh' }));
+
+    const browserToken = futureToken();
+    const auth = createAuthManagerFromApi(fakeBrowserAuth({ acquireResult: browserToken }), CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.getAccessToken();
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toBe(browserToken.accessToken);
+  });
+
+  it('refresh keeps the existing refresh_token when the OAuth response omits one (covers `?? cached.refresh_token`)', async () => {
+    const mock = installFetchMock([
+      {
+        match: (url) => url.includes('/token'),
+        respond: () => {
+          const future = Math.floor(Date.now() / 1000) + 3600;
+          const header = btoa(JSON.stringify({ alg: 'RS256' }));
+          const payload = btoa(JSON.stringify({ exp: future, aud: 'https://graph.microsoft.com' }));
+          // No refresh_token in the OAuth response — auth manager must fall back to the cached one.
+          return new Response(JSON.stringify({ access_token: `${header}.${payload}.sig`, expires_in: 3600 }));
+        },
+      },
+    ]);
+    afterEach(() => mock.restore());
+
+    const past = Math.floor(Date.now() / 1000) - 100;
+    const fs = createFileSystemFake();
+    fs.seed(CACHE_PATH, JSON.stringify({ access_token: 'expired', expires_on: past, refresh_token: 'old-refresh' }));
+
+    const auth = createAuthManagerFromApi(fakeBrowserAuth(), CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.getAccessToken();
+    expect(result.ok).toBe(true);
+    const cached = await fs.readJson<{ refresh_token: string }>(CACHE_PATH);
+    expect(cached.ok && cached.value.refresh_token).toBe('old-refresh');
+  });
+
+  it('refresh path falls through to browser when the OAuth response carries an invalid token (covers `if (!validated.ok)` in refreshToken)', async () => {
+    // OAuth response succeeds (status 200) but access_token is not a Graph JWT — accessToken() validation rejects.
+    const mock = installFetchMock([
+      {
+        match: (url) => url.includes('/token'),
+        respond: () => new Response(JSON.stringify({ access_token: 'not.a.graph.jwt', expires_in: 3600, refresh_token: 'r' })),
+      },
+    ]);
+    afterEach(() => mock.restore());
+
+    const past = Math.floor(Date.now() / 1000) - 100;
+    const fs = createFileSystemFake();
+    fs.seed(CACHE_PATH, JSON.stringify({ access_token: 'expired', expires_on: past, refresh_token: 'old-refresh' }));
+
+    const browserToken = futureToken();
+    const auth = createAuthManagerFromApi(fakeBrowserAuth({ acquireResult: browserToken }), CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.getAccessToken();
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toBe(browserToken.accessToken);
+  });
+
+  it('persists elevated alongside an empty Teams token slot when the cache file does not exist yet (covers persistElevated default-merge branch)', async () => {
+    const fs = createFileSystemFake();
+    // No cache seeded; getElevatedAccessToken called with empty FS.
+    const captured = futureElevated();
+    const auth = createAuthManagerFromApi(fakeBrowserAuth({ elevatedResult: captured }), CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.getElevatedAccessToken();
+    expect(result.ok).toBe(true);
+    const cached = await fs.readJson<{ access_token: string; elevated_access_token?: string }>(CACHE_PATH);
+    expect(cached.ok && cached.value.elevated_access_token).toBe(captured);
+    expect(cached.ok && cached.value.access_token).toBe('');
+  });
+
+  it('persists access_token expires_on as 0 when the Teams JWT has no exp claim (covers `exp ?? 0` fallback)', async () => {
+    const fs = createFileSystemFake();
+    const noExpAccessJwt = `${btoa(JSON.stringify({ alg: 'RS256' }))}.${btoa(JSON.stringify({ aud: 'https://graph.microsoft.com' }))}.sig`;
+    const browserResult: BrowserTokenResult = { accessToken: accessTokenUnsafe(noExpAccessJwt), refreshToken: 'rt' };
+    const auth = createAuthManagerFromApi(fakeBrowserAuth({ acquireResult: browserResult }), CACHE_PATH, createLoggerFake(), fs);
+    await auth.getAccessToken();
+    const cached = await fs.readJson<{ expires_on: number }>(CACHE_PATH);
+    expect(cached.ok && cached.value.expires_on).toBe(0);
+  });
+
+  it('persists refresh_token as empty string when browser returns null refresh (covers `refresh ?? ""` fallback)', async () => {
+    const fs = createFileSystemFake();
+    const browserResult: BrowserTokenResult = { accessToken: futureToken().accessToken, refreshToken: null };
+    const auth = createAuthManagerFromApi(fakeBrowserAuth({ acquireResult: browserResult }), CACHE_PATH, createLoggerFake(), fs);
+    await auth.getAccessToken();
+    const cached = await fs.readJson<{ refresh_token: string }>(CACHE_PATH);
+    expect(cached.ok && cached.value.refresh_token).toBe('');
+  });
+
+  it('login still succeeds when elevated capture throws a non-Error value (covers String(e) fallback in the login-time catch)', async () => {
+    const fs = createFileSystemFake();
+    const stringThrower: BrowserAuth = {
+      acquireToken: async () => futureToken(),
+      acquireElevatedToken: async () => {
+        throw 'edge crashed via SIGKILL';
+      },
+      close: async () => {},
+    };
+    const auth = createAuthManagerFromApi(stringThrower, CACHE_PATH, createLoggerFake(), fs);
     const result = await auth.getAccessToken();
     expect(result.ok).toBe(true);
   });

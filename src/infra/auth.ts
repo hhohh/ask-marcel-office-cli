@@ -144,9 +144,17 @@ const createAuthManagerFromApi = (browserAuth: BrowserAuth, cachePath: string, l
   };
 
   const ELEVATED_BUFFER_SECONDS = 300;
-  const isElevatedFresh = (cached: CachedToken | null): boolean => {
-    if (!cached?.elevated_access_token || !cached.elevated_expires_on) return false;
-    return Date.now() / 1000 < cached.elevated_expires_on - ELEVATED_BUFFER_SECONDS;
+  /**
+   * Narrowing helper: returns the cached elevated token if it exists,
+   * has an expiry, and is at least 5 minutes from expiring; otherwise
+   * undefined. Returning the token directly (instead of a boolean)
+   * lets callers skip a redundant `cached?.elevated_access_token`
+   * second-check after `isElevatedFresh` returns truthy.
+   */
+  const freshElevatedToken = (cached: CachedToken | null): string | undefined => {
+    if (!cached?.elevated_access_token || !cached.elevated_expires_on) return undefined;
+    if (Date.now() / 1000 >= cached.elevated_expires_on - ELEVATED_BUFFER_SECONDS) return undefined;
+    return cached.elevated_access_token;
   };
 
   const recaptureElevated = async (): Promise<Result<AccessToken, AuthError>> => {
@@ -169,16 +177,16 @@ const createAuthManagerFromApi = (browserAuth: BrowserAuth, cachePath: string, l
   };
 
   const getElevatedAccessToken = async (): Promise<Result<AccessToken, AuthError>> => {
-    const cached = await readCache();
-    if (isElevatedFresh(cached) && cached?.elevated_access_token) {
-      const validated = accessToken(cached.elevated_access_token);
+    const fresh = freshElevatedToken(await readCache());
+    if (fresh !== undefined) {
+      const validated = accessToken(fresh);
       if (validated.ok) {
         logger.info('auth.elevated.cache_hit');
         return ok(validated.value);
       }
     }
-    // Elevated absent or expired; need to re-capture. The persistent
-    // profile cookies do the silent SSO, no UI prompt.
+    // Elevated absent, expired, or malformed; need to re-capture. The
+    // persistent profile cookies do the silent SSO, no UI prompt.
     return recaptureElevated();
   };
 
