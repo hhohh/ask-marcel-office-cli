@@ -178,12 +178,10 @@ const createAuthManagerFromApi = (browserAuth: BrowserAuth, cachePath: string, l
 
   const getElevatedAccessToken = async (): Promise<Result<AccessToken, AuthError>> => {
     const fresh = freshElevatedToken(await readCache());
-    if (fresh !== undefined) {
-      const validated = accessToken(fresh);
-      if (validated.ok) {
-        logger.info('auth.elevated.cache_hit');
-        return ok(validated.value);
-      }
+    const validated = fresh !== undefined ? accessToken(fresh) : null;
+    if (validated?.ok) {
+      logger.info('auth.elevated.cache_hit');
+      return ok(validated.value);
     }
     // Elevated absent, expired, or malformed; need to re-capture. The
     // persistent profile cookies do the silent SSO, no UI prompt.
