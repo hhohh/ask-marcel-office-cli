@@ -19,7 +19,7 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
 
 const meta: CommandMeta = {
   summary:
-    'Download the binary content of a specific *non-current* historical version of a OneDrive / SharePoint file. Graph refuses to serve the current version through this endpoint with "You cannot get the content of the current version" — for the current version use `download-onedrive-file-content` instead. Same envelope as that command (302 → downloadUrl, or base64 bytes).',
+    'Return the SharePoint streamContent URL for a *non-current* historical version of a OneDrive / SharePoint file. Graph refuses to serve the current version through this endpoint with "You cannot get the content of the current version" — for the current version use `download-onedrive-file-content`. **Known Teams-token limit:** the URL this command returns 403s with `logicalPermissionAccessDenied` when actually fetched (the Teams web client token does not grant historical-version stream access — see https://aka.ms/ODSPS2SAuthOnboarding). The URL itself is well-formed and works in environments with elevated ODSP scopes.',
   category: 'drive',
   graphMethod: 'GET',
   graphPathTemplate: '/drives/{drive-id}/items/{item-id}/versions/{version-id}/content',

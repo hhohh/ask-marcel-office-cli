@@ -34,7 +34,7 @@ const execute = async (graph: GraphClient, params: Record<string, string>): Prom
 
 const meta: CommandMeta = {
   summary:
-    'Download a *historical version* of a OneDrive / SharePoint file converted to PDF on the fly by Graph. Same shape as `download-drive-item-as-pdf` plus a `--version-id`. Graph refuses to serve the *current* version through this endpoint — for the current version use `download-drive-item-as-pdf` instead. Plain-text source extensions and `pdf` sources short-circuit to a raw-bytes download (Graph’s `?format=pdf` does not accept `pdf` as an input format).',
+    'Convert a *historical version* of a OneDrive / SharePoint file to PDF and return the URL. Same shape as `download-drive-item-as-pdf` plus a `--version-id`. Graph refuses to serve the *current* version through this endpoint — for the current version use `download-drive-item-as-pdf`. Plain-text source extensions and `pdf` sources short-circuit to a raw-bytes URL. **Known Teams-token limit:** the returned URL 403s with `logicalPermissionAccessDenied` when actually fetched (the Teams web client token does not grant historical-version stream access — see https://aka.ms/ODSPS2SAuthOnboarding). The URL is well-formed and works in environments with elevated ODSP scopes.',
   category: 'drive',
   graphMethod: 'GET',
   graphPathTemplate: '/drives/{drive-id}/items/{item-id}/versions/{version-id}/content?format=pdf',

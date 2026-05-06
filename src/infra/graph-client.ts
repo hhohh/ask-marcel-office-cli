@@ -75,7 +75,11 @@ type GraphErrorBody = {
   readonly error?: {
     readonly code?: string;
     readonly message?: string;
+    // Microsoft Graph uses lowercase `innererror`; SharePoint streamContent
+    // (the CDN that hosts /drives/{}/items/{}/versions/{}/content) uses
+    // camelCase `innerError`. Tolerate both so the inner code survives.
     readonly innererror?: { readonly code?: string };
+    readonly innerError?: { readonly code?: string };
   };
 };
 
@@ -83,7 +87,7 @@ const emptyOnJsonFailure = (): GraphErrorBody => ({});
 
 const apiErrorFrom = async (res: Response): Promise<GraphError> => {
   const errBody = (await res.json().catch(emptyOnJsonFailure)) as GraphErrorBody;
-  const tag = errBody.error?.innererror?.code ?? errBody.error?.code;
+  const tag = errBody.error?.innererror?.code ?? errBody.error?.innerError?.code ?? errBody.error?.code;
   const message = errBody.error?.message;
   if (typeof tag === 'string' && typeof message === 'string') {
     return { type: 'api_error', status: res.status, message: `${tag}: ${message}` };

@@ -253,6 +253,24 @@ describe('graph client', () => {
     }
   });
 
+  it('fetchUrl also extracts the camelCase innerError.code (SharePoint streamContent uses camelCase, Graph uses lowercase)', async () => {
+    const body = JSON.stringify({
+      error: {
+        code: 'accessDenied',
+        innerError: { code: 'logicalPermissionAccessDenied' },
+        message: 'The calling application is enrolled in logical permissions and is not permitted to call this API.',
+      },
+    });
+    const fetchFn: FetchFn = async () => new Response(body, { status: 403, statusText: 'Forbidden', headers: { 'content-type': 'application/json' } });
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    const result = await client.fetchUrl('https://contoso.sharepoint.com/_api/v2.0/drives/x/items/y/versions/3.0/streamContent');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'api_error') {
+      expect(result.error.status).toBe(403);
+      expect(result.error.message).toContain('logicalPermissionAccessDenied');
+    }
+  });
+
   it('fetchUrl wraps network errors via the same networkErrorMessage helper', async () => {
     const throwing: FetchFn = async () => {
       throw new Error('socket reset');
