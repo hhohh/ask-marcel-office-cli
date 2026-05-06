@@ -13,6 +13,14 @@ type GraphClient = {
   post: (path: string, body: unknown) => Promise<Result<unknown, GraphError>>;
   getBinary: (path: string) => Promise<Result<unknown, GraphError>>;
   /**
+   * Same shape as `getBinary` but signs the request with an "elevated"
+   * Graph token (issued for an app on Microsoft's ODSP
+   * `logicalPermissions` allow-list — e.g., M365ChatClient). Used by
+   * the historical-version commands which the Teams web client token
+   * cannot fetch (403 logicalPermissionAccessDenied).
+   */
+  getBinaryElevated: (path: string) => Promise<Result<unknown, GraphError>>;
+  /**
    * Auth-less fetch of an arbitrary URL whose host MUST be on the
    * Microsoft allow-list. Used to follow `@microsoft.graph.downloadUrl`
    * 302 redirects (CDN-signed URLs) that the format-conversion
@@ -123,14 +131,20 @@ const createGraphClient = (auth: AuthManager, fetchFn: FetchFn = globalThis.fetc
     }
   };
 
-  const getBinary = async (path: string): Promise<Result<unknown, GraphError>> => {
-    const headers = await authHeaders();
-    if (!headers.ok) return headers;
+  const elevatedAuthHeaders = async (): Promise<Result<{ Authorization: string }, GraphError>> => {
+    const tokenResult = await auth.getElevatedAccessToken();
+    if (!tokenResult.ok) {
+      const msg = tokenResult.error.type === 'auth_cancelled' ? 'Auth cancelled' : tokenResult.error.message;
+      return err({ type: 'auth_failed', message: msg });
+    }
+    return ok({ Authorization: `Bearer ${tokenResult.value}` });
+  };
 
+  const getBinaryWith = async (path: string, signedHeaders: { Authorization: string }): Promise<Result<unknown, GraphError>> => {
     try {
       const res = await fetchFn(`https://graph.microsoft.com/v1.0${path}`, {
         method: 'GET',
-        headers: headers.value,
+        headers: signedHeaders,
         redirect: 'manual',
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
@@ -150,6 +164,18 @@ const createGraphClient = (auth: AuthManager, fetchFn: FetchFn = globalThis.fetc
     } catch (e: unknown) {
       return err({ type: 'network_error', message: networkErrorMessage(e) });
     }
+  };
+
+  const getBinary = async (path: string): Promise<Result<unknown, GraphError>> => {
+    const headers = await authHeaders();
+    if (!headers.ok) return headers;
+    return getBinaryWith(path, headers.value);
+  };
+
+  const getBinaryElevated = async (path: string): Promise<Result<unknown, GraphError>> => {
+    const headers = await elevatedAuthHeaders();
+    if (!headers.ok) return headers;
+    return getBinaryWith(path, headers.value);
   };
 
   const fetchUrl = async (url: string): Promise<Result<unknown, GraphError>> => {
@@ -286,6 +312,7 @@ const createGraphClient = (auth: AuthManager, fetchFn: FetchFn = globalThis.fetc
     get: (path) => request('GET', path),
     post: (path, body) => request('POST', path, body),
     getBinary,
+    getBinaryElevated,
     fetchUrl,
     put,
     delete: deleteResource,

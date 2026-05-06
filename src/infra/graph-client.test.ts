@@ -5,7 +5,11 @@ import type { AuthManager } from './auth.ts';
 import type { FetchFn } from './graph-client.ts';
 import { createGraphClient } from './graph-client.ts';
 
-const fakeAuth = (): AuthManager => ({ getAccessToken: async () => ok(accessTokenUnsafe('test-token')), logout: async () => ok(undefined) });
+const fakeAuth = (): AuthManager => ({
+  getAccessToken: async () => ok(accessTokenUnsafe('test-token')),
+  getElevatedAccessToken: async () => ok(accessTokenUnsafe('test-elevated-token')),
+  logout: async () => ok(undefined),
+});
 
 const fakeFetch = (responses: Array<{ match: (url: string) => boolean; body: unknown; status?: number }>): FetchFn => {
   return async (url: string) => {
@@ -37,6 +41,7 @@ describe('graph client', () => {
   it('returns an error when auth fails', async () => {
     const client = createGraphClient({
       getAccessToken: async () => ({ ok: false, error: { type: 'auth_failed' as const, message: 'no auth' } }),
+      getElevatedAccessToken: async () => ({ ok: false as const, error: { type: 'auth_cancelled' as const } }),
       logout: async () => ok(undefined),
     });
     const result = await client.get('/me/drives');
@@ -72,6 +77,7 @@ describe('graph client', () => {
   it('reports an Auth cancelled message when the auth manager returns auth_cancelled', async () => {
     const cancelledAuth = {
       getAccessToken: async () => ({ ok: false as const, error: { type: 'auth_cancelled' as const } }),
+      getElevatedAccessToken: async () => ({ ok: false as const, error: { type: 'auth_cancelled' as const } }),
       logout: async () => ok(undefined),
     };
     const client = createGraphClient(cancelledAuth);
@@ -355,6 +361,7 @@ describe('graph client', () => {
   it('getBinary surfaces auth_failed when the auth manager fails', async () => {
     const failingAuth: AuthManager = {
       getAccessToken: async () => ({ ok: false, error: { type: 'auth_failed', message: 'token gone' } }),
+      getElevatedAccessToken: async () => ({ ok: false as const, error: { type: 'auth_cancelled' as const } }),
       logout: async () => ok(undefined),
     };
     const client = createGraphClient(failingAuth);
@@ -564,6 +571,7 @@ describe('graph client', () => {
   it('put surfaces auth_failed when the auth manager fails (simple path)', async () => {
     const failingAuth: AuthManager = {
       getAccessToken: async () => ({ ok: false, error: { type: 'auth_failed', message: 'no token' } }),
+      getElevatedAccessToken: async () => ({ ok: false as const, error: { type: 'auth_cancelled' as const } }),
       logout: async () => ok(undefined),
     };
     const client = createGraphClient(failingAuth);
@@ -605,6 +613,7 @@ describe('graph client', () => {
   it('delete surfaces auth_failed when the auth manager fails', async () => {
     const failingAuth: AuthManager = {
       getAccessToken: async () => ({ ok: false, error: { type: 'auth_failed', message: 'no token' } }),
+      getElevatedAccessToken: async () => ({ ok: false as const, error: { type: 'auth_cancelled' as const } }),
       logout: async () => ok(undefined),
     };
     const client = createGraphClient(failingAuth);
@@ -627,6 +636,46 @@ describe('graph client', () => {
     expect(result.ok).toBe(false);
     if (!result.ok && result.error.type === 'api_error') {
       expect(result.error.message).toContain('chunked upload completed without final response');
+    }
+  });
+
+  it('getBinaryElevated signs requests with the elevated token (different audience claim than getBinary)', async () => {
+    let capturedAuth = '';
+    const fetchFn: FetchFn = async (_url, init) => {
+      const headers = new Headers(init?.headers);
+      capturedAuth = headers.get('authorization') ?? '';
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    const client = createGraphClient(fakeAuth(), fetchFn);
+    await client.getBinaryElevated('/drives/d1/items/i1/versions/2.0/content');
+    expect(capturedAuth).toBe('Bearer test-elevated-token');
+  });
+
+  it('getBinaryElevated surfaces auth_failed when the elevated auth manager rejects', async () => {
+    const failingAuth: AuthManager = {
+      getAccessToken: async () => ok(accessTokenUnsafe('test')),
+      getElevatedAccessToken: async () => ({ ok: false as const, error: { type: 'auth_failed' as const, message: 'elevated capture timed out' } }),
+      logout: async () => ok(undefined),
+    };
+    const client = createGraphClient(failingAuth, async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
+    const result = await client.getBinaryElevated('/drives/d1/items/i1/versions/2.0/content');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'auth_failed') {
+      expect(result.error.message).toContain('elevated capture timed out');
+    }
+  });
+
+  it('getBinaryElevated maps auth_cancelled to a friendly auth_failed message', async () => {
+    const cancelledAuth: AuthManager = {
+      getAccessToken: async () => ok(accessTokenUnsafe('test')),
+      getElevatedAccessToken: async () => ({ ok: false as const, error: { type: 'auth_cancelled' as const } }),
+      logout: async () => ok(undefined),
+    };
+    const client = createGraphClient(cancelledAuth, async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
+    const result = await client.getBinaryElevated('/drives/d1/items/i1/versions/2.0/content');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'auth_failed') {
+      expect(result.error.message).toBe('Auth cancelled');
     }
   });
 });

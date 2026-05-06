@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFileSystemFake } from '../test-helpers/filesystem-fake.ts';
 import { createLoggerFake } from '../test-helpers/logger-fake.ts';
-import type { BrowserAuthApi, BrowserAuthConfig, ContextLike, PageLike, ResponseLike } from './browser-auth.ts';
+import type { BrowserAuthApi, BrowserAuthConfig, ContextLike, PageLike, RequestLike, ResponseLike } from './browser-auth.ts';
 import { createBrowserAuth, createBrowserAuthFromApi, createPlaywrightApi } from './browser-auth.ts';
 import { createBunFileSystem } from './filesystem-bun.ts';
 
@@ -34,6 +34,7 @@ const customResponse = (overrides: Partial<{ url: string; contentType: string; b
 
 type FakePageOpts = {
   responsesPerGoto?: ReadonlyArray<ReadonlyArray<ResponseLike>>;
+  requestsPerGoto?: ReadonlyArray<ReadonlyArray<RequestLike>>;
   urlsAfterGoto?: ReadonlyArray<string>;
   gotoErrors?: ReadonlyArray<unknown>;
 };
@@ -43,17 +44,21 @@ type FakePageState = { closed: boolean; evaluated: boolean; gotoCount: number };
 const makeFakePage = (opts: FakePageOpts): { page: PageLike; state: FakePageState } => {
   const state: FakePageState = { closed: false, evaluated: false, gotoCount: 0 };
   let currentUrl = 'about:blank';
-  const handlers: Array<(r: ResponseLike) => void> = [];
+  const responseHandlers: Array<(r: ResponseLike) => void> = [];
+  const requestHandlers: Array<(r: RequestLike) => void> = [];
 
   const page: PageLike = {
     on: (event, handler) => {
-      if (event === 'response') handlers.push(handler);
+      if (event === 'response') responseHandlers.push(handler as (r: ResponseLike) => void);
+      else if (event === 'request') requestHandlers.push(handler as (r: RequestLike) => void);
     },
     goto: async (url) => {
       const idx = state.gotoCount;
       state.gotoCount += 1;
-      const queued = opts.responsesPerGoto?.[idx] ?? [];
-      for (const r of queued) for (const h of handlers) h(r);
+      const queuedResponses = opts.responsesPerGoto?.[idx] ?? [];
+      for (const r of queuedResponses) for (const h of responseHandlers) h(r);
+      const queuedRequests = opts.requestsPerGoto?.[idx] ?? [];
+      for (const r of queuedRequests) for (const h of requestHandlers) h(r);
       currentUrl = opts.urlsAfterGoto?.[idx] ?? url;
       const err = opts.gotoErrors?.[idx];
       if (err !== undefined) throw err;
@@ -587,5 +592,97 @@ describe('browser auth — production wiring', () => {
       process.stderr.write = original;
     }
     expect(captured).not.toContain('[DEBUG]');
+  });
+
+  it('acquireElevatedToken captures the first Bearer with an ODSP-elevated appid (M365ChatClient) on Graph audience', async () => {
+    const elevatedJwt = makeJwt({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      aud: 'https://graph.microsoft.com',
+      appid: 'c0ab8ce9-e9a0-42e7-b064-33d422df41f1',
+    });
+    const elevatedRequest: RequestLike = {
+      url: () => 'https://graph.microsoft.com/v1.0/me',
+      headers: () => ({ authorization: `Bearer ${elevatedJwt}` }),
+    };
+    const { api } = makeFakeApi({
+      pageOpts: { requestsPerGoto: [[elevatedRequest]] },
+    });
+    const browser = createBrowserAuthFromApi(api, fastConfig());
+    const token = await browser.acquireElevatedToken();
+    expect(token as unknown as string).toBe(elevatedJwt);
+  });
+
+  it('acquireElevatedToken ignores Bearer tokens that do not match an elevated appid', async () => {
+    const teamsJwt = makeJwt({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      aud: 'https://graph.microsoft.com',
+      appid: '5e3ce6c0-2b1f-4285-8d4b-75ee78787346', // Teams web client — NOT elevated
+    });
+    const wrongAppRequest: RequestLike = {
+      url: () => 'https://graph.microsoft.com/v1.0/me',
+      headers: () => ({ authorization: `Bearer ${teamsJwt}` }),
+    };
+    const { api } = makeFakeApi({
+      pageOpts: { requestsPerGoto: [[wrongAppRequest]] },
+    });
+    const browser = createBrowserAuthFromApi(api, fastConfig({ pollDeadlineMs: 100, pollIntervalMs: 20 }));
+    const token = await browser.acquireElevatedToken();
+    expect(token).toBeNull();
+  });
+
+  it('acquireElevatedToken ignores tokens whose audience is not Graph (even if appid is on the elevated list)', async () => {
+    const sharepointJwt = makeJwt({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      aud: '00000003-0000-0ff1-ce00-000000000000', // SharePoint, not Graph
+      appid: 'c0ab8ce9-e9a0-42e7-b064-33d422df41f1',
+    });
+    const wrongAudRequest: RequestLike = {
+      url: () => 'https://examplecorp-my.sharepoint.com/_api/...',
+      headers: () => ({ authorization: `Bearer ${sharepointJwt}` }),
+    };
+    const { api } = makeFakeApi({
+      pageOpts: { requestsPerGoto: [[wrongAudRequest]] },
+    });
+    const browser = createBrowserAuthFromApi(api, fastConfig({ pollDeadlineMs: 100, pollIntervalMs: 20 }));
+    const token = await browser.acquireElevatedToken();
+    expect(token).toBeNull();
+  });
+
+  it('acquireElevatedToken ignores requests without an Authorization header', async () => {
+    const noAuthRequest: RequestLike = {
+      url: () => 'https://m365.cloud.microsoft/some/static-asset.js',
+      headers: () => ({ accept: 'text/javascript' }),
+    };
+    const { api } = makeFakeApi({
+      pageOpts: { requestsPerGoto: [[noAuthRequest]] },
+    });
+    const browser = createBrowserAuthFromApi(api, fastConfig({ pollDeadlineMs: 100, pollIntervalMs: 20 }));
+    const token = await browser.acquireElevatedToken();
+    expect(token).toBeNull();
+  });
+
+  it('acquireElevatedToken returns null on poll-deadline timeout when no elevated request fires', async () => {
+    const { api } = makeFakeApi({ pageOpts: {} });
+    const browser = createBrowserAuthFromApi(api, fastConfig({ pollDeadlineMs: 100, pollIntervalMs: 20 }));
+    const token = await browser.acquireElevatedToken();
+    expect(token).toBeNull();
+  });
+
+  it('acquireElevatedToken treats goto errors as non-fatal — keeps polling for the request event', async () => {
+    const elevatedJwt = makeJwt({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      aud: 'https://graph.microsoft.com',
+      appid: 'c0ab8ce9-e9a0-42e7-b064-33d422df41f1',
+    });
+    const elevatedRequest: RequestLike = {
+      url: () => 'https://graph.microsoft.com/v1.0/me',
+      headers: () => ({ authorization: `Bearer ${elevatedJwt}` }),
+    };
+    const { api } = makeFakeApi({
+      pageOpts: { requestsPerGoto: [[elevatedRequest]], gotoErrors: [new Error('navigation timeout')] },
+    });
+    const browser = createBrowserAuthFromApi(api, fastConfig());
+    const token = await browser.acquireElevatedToken();
+    expect(token as unknown as string).toBe(elevatedJwt);
   });
 });

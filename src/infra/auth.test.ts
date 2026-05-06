@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+import type { AccessToken } from '../domain/access-token.ts';
 import { accessTokenUnsafe } from '../domain/access-token.ts';
 import { ok } from '../domain/result.ts';
 import { installFetchMock } from '../test-helpers/fetch-mock.ts';
@@ -9,11 +10,12 @@ import type { BrowserAuth, BrowserTokenResult } from './browser-auth.ts';
 
 const CACHE_PATH = '/virtual/token-cache.json';
 
-const fakeBrowserAuth = (config?: { acquireResult?: BrowserTokenResult | null; acquireError?: Error }): BrowserAuth => ({
+const fakeBrowserAuth = (config?: { acquireResult?: BrowserTokenResult | null; acquireError?: Error; elevatedResult?: AccessToken | null }): BrowserAuth => ({
   acquireToken: async () => {
     if (config?.acquireError) throw config.acquireError;
     return config?.acquireResult ?? null;
   },
+  acquireElevatedToken: async () => config?.elevatedResult ?? null,
   close: async () => {},
 });
 
@@ -22,6 +24,13 @@ const futureToken = (): BrowserTokenResult => {
   const header = btoa(JSON.stringify({ alg: 'RS256' }));
   const payload = btoa(JSON.stringify({ exp: future, aud: 'https://graph.microsoft.com', tid: 'tenant-1' }));
   return { accessToken: accessTokenUnsafe(`${header}.${payload}.sig`), refreshToken: 'new-refresh' };
+};
+
+const futureElevated = (): AccessToken => {
+  const future = Math.floor(Date.now() / 1000) + 3600;
+  const header = btoa(JSON.stringify({ alg: 'RS256' }));
+  const payload = btoa(JSON.stringify({ exp: future, aud: 'https://graph.microsoft.com', appid: 'c0ab8ce9-e9a0-42e7-b064-33d422df41f1' }));
+  return accessTokenUnsafe(`${header}.${payload}.sig`);
 };
 
 describe('auth manager recovery ladder', () => {
@@ -159,6 +168,7 @@ describe('auth manager recovery ladder', () => {
 
     const failingBrowser: BrowserAuth = {
       acquireToken: async () => null,
+      acquireElevatedToken: async () => null,
       close: async () => {
         throw new Error('close failed');
       },
@@ -229,6 +239,154 @@ describe('auth manager recovery ladder', () => {
     expect(result.ok).toBe(false);
     if (!result.ok && result.error.type === 'auth_failed') {
       expect(result.error.message).toBe('tcp_reset');
+    }
+  });
+});
+
+describe('auth manager elevated token', () => {
+  it('returns the cached elevated token when fresh and valid', async () => {
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const header = btoa(JSON.stringify({ alg: 'RS256' }));
+    const payload = btoa(JSON.stringify({ exp: future, aud: 'https://graph.microsoft.com', appid: 'c0ab8ce9-e9a0-42e7-b064-33d422df41f1' }));
+    const elevatedToken = `${header}.${payload}.sig`;
+    const fs = createFileSystemFake();
+    fs.seed(CACHE_PATH, JSON.stringify({ access_token: 'teams-tok', expires_on: future, refresh_token: 'r', elevated_access_token: elevatedToken, elevated_expires_on: future }));
+
+    const auth = createAuthManagerFromApi(fakeBrowserAuth(), CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.getElevatedAccessToken();
+    expect(result).toEqual(ok(accessTokenUnsafe(elevatedToken)));
+  });
+
+  it('re-captures the elevated token via the browser when the cache is missing it', async () => {
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const fs = createFileSystemFake();
+    fs.seed(CACHE_PATH, JSON.stringify({ access_token: 'teams-tok', expires_on: future, refresh_token: 'r' }));
+
+    const captured = futureElevated();
+    const auth = createAuthManagerFromApi(fakeBrowserAuth({ elevatedResult: captured }), CACHE_PATH, createLoggerFake(), fs);
+
+    const result = await auth.getElevatedAccessToken();
+    expect(result).toEqual(ok(captured));
+    // Cache should now contain the freshly-captured elevated token.
+    const persisted = await fs.readJson<{ elevated_access_token?: string }>(CACHE_PATH);
+    expect(persisted.ok && persisted.value.elevated_access_token).toBe(captured);
+  });
+
+  it('re-captures when the cached elevated token is expired', async () => {
+    const past = Math.floor(Date.now() / 1000) - 3600;
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const fs = createFileSystemFake();
+    fs.seed(
+      CACHE_PATH,
+      JSON.stringify({ access_token: 'teams-tok', expires_on: future, refresh_token: 'r', elevated_access_token: 'expired-elevated', elevated_expires_on: past })
+    );
+
+    const captured = futureElevated();
+    const auth = createAuthManagerFromApi(fakeBrowserAuth({ elevatedResult: captured }), CACHE_PATH, createLoggerFake(), fs);
+
+    const result = await auth.getElevatedAccessToken();
+    expect(result).toEqual(ok(captured));
+  });
+
+  it('returns auth_failed with actionable guidance when re-capture returns null', async () => {
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const fs = createFileSystemFake();
+    fs.seed(CACHE_PATH, JSON.stringify({ access_token: 'teams-tok', expires_on: future, refresh_token: 'r' }));
+
+    const auth = createAuthManagerFromApi(fakeBrowserAuth({ elevatedResult: null }), CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.getElevatedAccessToken();
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'auth_failed') {
+      expect(result.error.message).toContain('elevated token capture failed');
+      expect(result.error.message).toContain('ask-marcel logout');
+    }
+  });
+
+  it('returns auth_failed with the wrapper message when the browser throws during elevated capture', async () => {
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const fs = createFileSystemFake();
+    fs.seed(CACHE_PATH, JSON.stringify({ access_token: 'teams-tok', expires_on: future, refresh_token: 'r' }));
+
+    const throwingBrowser: BrowserAuth = {
+      acquireToken: async () => null,
+      acquireElevatedToken: async () => {
+        throw new Error('playwright not installed');
+      },
+      close: async () => {},
+    };
+    const auth = createAuthManagerFromApi(throwingBrowser, CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.getElevatedAccessToken();
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'auth_failed') {
+      expect(result.error.message).toContain('elevated capture threw');
+      expect(result.error.message).toContain('playwright not installed');
+    }
+  });
+
+  it('persists the elevated token alongside the Teams token at login time (best-effort)', async () => {
+    const fs = createFileSystemFake();
+    const captured = futureElevated();
+    const auth = createAuthManagerFromApi(fakeBrowserAuth({ acquireResult: futureToken(), elevatedResult: captured }), CACHE_PATH, createLoggerFake(), fs);
+
+    await auth.getAccessToken();
+    const cacheRead = await fs.readJson<{ elevated_access_token?: string }>(CACHE_PATH);
+    expect(cacheRead.ok).toBe(true);
+    if (cacheRead.ok) {
+      expect(cacheRead.value.elevated_access_token).toBe(captured);
+    }
+  });
+
+  it('login still succeeds even when elevated capture returns null (the 80+ non-version commands do not need it)', async () => {
+    const fs = createFileSystemFake();
+    const auth = createAuthManagerFromApi(fakeBrowserAuth({ acquireResult: futureToken(), elevatedResult: null }), CACHE_PATH, createLoggerFake(), fs);
+
+    const result = await auth.getAccessToken();
+    expect(result.ok).toBe(true);
+    const cached = await fs.readJson<{ elevated_access_token?: string }>(CACHE_PATH);
+    expect(cached.ok && cached.value.elevated_access_token).toBeUndefined();
+  });
+
+  it('login still succeeds even when elevated capture throws (best-effort, error is logged not propagated)', async () => {
+    const fs = createFileSystemFake();
+    const throwingElevated: BrowserAuth = {
+      acquireToken: async () => futureToken(),
+      acquireElevatedToken: async () => {
+        throw new Error('headless edge crashed');
+      },
+      close: async () => {},
+    };
+    const auth = createAuthManagerFromApi(throwingElevated, CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.getAccessToken();
+    expect(result.ok).toBe(true);
+  });
+
+  it('persists elevated_expires_on as 0 when the elevated JWT has no exp claim', async () => {
+    const fs = createFileSystemFake();
+    const noExpJwt = `${btoa(JSON.stringify({ alg: 'RS256' }))}.${btoa(JSON.stringify({ aud: 'https://graph.microsoft.com', appid: 'c0ab8ce9' }))}.sig`;
+    const auth = createAuthManagerFromApi(fakeBrowserAuth({ acquireResult: futureToken(), elevatedResult: accessTokenUnsafe(noExpJwt) }), CACHE_PATH, createLoggerFake(), fs);
+    await auth.getAccessToken();
+    const cached = await fs.readJson<{ elevated_access_token?: string; elevated_expires_on?: number }>(CACHE_PATH);
+    expect(cached.ok && cached.value.elevated_expires_on).toBe(0);
+  });
+
+  it('elevated capture throwing a non-Error value is still wrapped (covers the String(e) fallback)', async () => {
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const fs = createFileSystemFake();
+    fs.seed(CACHE_PATH, JSON.stringify({ access_token: 'teams-tok', expires_on: future, refresh_token: 'r' }));
+
+    const stringThrower: BrowserAuth = {
+      acquireToken: async () => null,
+      acquireElevatedToken: async () => {
+        throw 'edge process killed by SIGKILL';
+      },
+      close: async () => {},
+    };
+    const auth = createAuthManagerFromApi(stringThrower, CACHE_PATH, createLoggerFake(), fs);
+    const result = await auth.getElevatedAccessToken();
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.type === 'auth_failed') {
+      expect(result.error.message).toContain('elevated capture threw');
+      expect(result.error.message).toContain('edge process killed');
     }
   });
 });

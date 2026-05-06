@@ -14,12 +14,15 @@ const schema = z.object({
 const execute = async (graph: GraphClient, params: Record<string, string>): Promise<Result<unknown, GraphError>> => {
   const parsed = schema.safeParse(params);
   if (!parsed.success) return err({ type: 'validation_error', message: formatZodError(parsed.error) });
-  return graph.getBinary(`/drives/${parsed.data.driveId}/items/${parsed.data.itemId}/versions/${parsed.data.versionId}/content`);
+  // Use the elevated token so the embedded tempauth in the returned
+  // streamContent URL is signed by an ODSP-elevated identity (M365ChatClient)
+  // and actually fetches when followed downstream — instead of 403ing.
+  return graph.getBinaryElevated(`/drives/${parsed.data.driveId}/items/${parsed.data.itemId}/versions/${parsed.data.versionId}/content`);
 };
 
 const meta: CommandMeta = {
   summary:
-    'Return the SharePoint streamContent URL for a *non-current* historical version of a OneDrive / SharePoint file. Graph refuses to serve the current version through this endpoint with "You cannot get the content of the current version" — for the current version use `download-onedrive-file-content`. **Known Teams-token limit:** the URL this command returns 403s with `logicalPermissionAccessDenied` when actually fetched (the Teams web client token does not grant historical-version stream access — see https://aka.ms/ODSPS2SAuthOnboarding). The URL itself is well-formed and works in environments with elevated ODSP scopes.',
+    'Return the SharePoint streamContent URL for a *non-current* historical version of a OneDrive / SharePoint file. Graph refuses to serve the current version through this endpoint with "You cannot get the content of the current version" — for the current version use `download-onedrive-file-content`. The returned URL embeds an ODSP-elevated tempauth (signed via the M365ChatClient identity captured at login) so that fetching it downstream returns the bytes rather than the 403 the Teams web client token would produce.',
   category: 'drive',
   graphMethod: 'GET',
   graphPathTemplate: '/drives/{drive-id}/items/{item-id}/versions/{version-id}/content',

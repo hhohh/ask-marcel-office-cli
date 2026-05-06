@@ -10,9 +10,31 @@ import { createBrowserAuth } from './browser-auth.ts';
 import { createBunFileSystem } from './filesystem-bun.ts';
 import { createNodeFileSystem } from './filesystem-node.ts';
 
-type CachedToken = { access_token: string; expires_on: number; refresh_token: string };
+type CachedToken = {
+  access_token: string;
+  expires_on: number;
+  refresh_token: string;
+  /**
+   * "Elevated" Graph token captured from a Microsoft web app whose
+   * first-party identity is on the ODSP `logicalPermissions` allow-list
+   * (e.g., M365ChatClient, OfficeHome). Used by historical-version
+   * commands to fetch streamContent the Teams web client token can't.
+   * Refresh path is re-capture (no refresh_token in this flow).
+   */
+  elevated_access_token?: string;
+  elevated_expires_on?: number;
+};
 type AuthError = { type: 'auth_failed'; message: string } | { type: 'auth_cancelled' };
-type AuthManager = { getAccessToken: () => Promise<Result<AccessToken, AuthError>>; logout: () => Promise<Result<void, AuthError>> };
+type AuthManager = {
+  getAccessToken: () => Promise<Result<AccessToken, AuthError>>;
+  /**
+   * Returns a Graph token issued for an app on Microsoft's ODSP
+   * `logicalPermissions` allow-list. Falls through cache → re-capture
+   * via headless Playwright. Used by the 3 historical-version commands.
+   */
+  getElevatedAccessToken: () => Promise<Result<AccessToken, AuthError>>;
+  logout: () => Promise<Result<void, AuthError>>;
+};
 
 const CLIENT_ID = '5e3ce6c0-2b1f-4285-8d4b-75ee78787346';
 const SCOPES = 'https://graph.microsoft.com/.default openid profile offline_access';
@@ -20,10 +42,34 @@ const SPA_ORIGIN = 'https://teams.microsoft.com';
 const TEAMS_URL = 'https://teams.microsoft.com/';
 
 const createAuthManagerFromApi = (browserAuth: BrowserAuth, cachePath: string, logger: Logger, fs: FileSystem): AuthManager => {
-  const persist = async (access: AccessToken, refresh: string | null): Promise<void> => {
+  const readCache = async (): Promise<CachedToken | null> => {
+    const r = await fs.readJson<CachedToken>(cachePath);
+    return r.ok ? r.value : null;
+  };
+
+  const writeCache = async (next: CachedToken): Promise<void> => {
+    await fs.writeText(cachePath, JSON.stringify(next));
+  };
+
+  const persistTeams = async (access: AccessToken, refresh: string | null, elevated?: AccessToken | null): Promise<void> => {
     const claims = decodeJwtPayload(access);
     const exp = claims.exp as number | undefined;
-    await fs.writeText(cachePath, JSON.stringify({ access_token: access, expires_on: exp ?? 0, refresh_token: refresh ?? '' }));
+    const cached: CachedToken = { access_token: access, expires_on: exp ?? 0, refresh_token: refresh ?? '' };
+    if (elevated) {
+      const elevatedClaims = decodeJwtPayload(elevated);
+      const elevatedExp = elevatedClaims.exp as number | undefined;
+      cached.elevated_access_token = elevated;
+      cached.elevated_expires_on = elevatedExp ?? 0;
+    }
+    await writeCache(cached);
+  };
+
+  const persistElevated = async (elevated: AccessToken): Promise<void> => {
+    const existing = (await readCache()) ?? { access_token: '', expires_on: 0, refresh_token: '' };
+    const elevatedClaims = decodeJwtPayload(elevated);
+    const elevatedExp = elevatedClaims.exp as number | undefined;
+    const next: CachedToken = { ...existing, elevated_access_token: elevated, elevated_expires_on: elevatedExp ?? 0 };
+    await writeCache(next);
   };
 
   const refreshToken = async (cached: CachedToken): Promise<Result<AccessToken, AuthError>> => {
@@ -57,7 +103,22 @@ const createAuthManagerFromApi = (browserAuth: BrowserAuth, cachePath: string, l
     try {
       const result = await browserAuth.acquireToken(SCOPES.split(' '), TEAMS_URL);
       if (!result) return err({ type: 'auth_cancelled' });
-      await persist(result.accessToken, result.refreshToken);
+      // Best-effort: also try to capture an elevated token while the
+      // browser session is fresh. If it fails (cookies in profile don't
+      // SSO into m365.cloud.microsoft, slow tenant, etc.), don't fail
+      // the whole login — 80+ commands still work without elevated.
+      let elevated: AccessToken | null = null;
+      try {
+        elevated = await browserAuth.acquireElevatedToken();
+        if (elevated) {
+          logger.info('auth.elevated.captured_at_login');
+        } else {
+          logger.info('auth.elevated.skipped_at_login');
+        }
+      } catch (e) {
+        logger.info('auth.elevated.error_at_login', { message: e instanceof Error ? e.message : String(e) });
+      }
+      await persistTeams(result.accessToken, result.refreshToken, elevated);
       logger.info('auth.ladder.rung', { rung: 'browser' });
       return ok(result.accessToken);
     } catch (e) {
@@ -67,8 +128,7 @@ const createAuthManagerFromApi = (browserAuth: BrowserAuth, cachePath: string, l
   };
 
   const getAccessToken = async (): Promise<Result<AccessToken, AuthError>> => {
-    const cachedRead = await fs.readJson<CachedToken>(cachePath);
-    const cached = cachedRead.ok ? cachedRead.value : null;
+    const cached = await readCache();
     if (cached) {
       const validated = accessToken(cached.access_token);
       if (validated.ok) {
@@ -83,6 +143,45 @@ const createAuthManagerFromApi = (browserAuth: BrowserAuth, cachePath: string, l
     return acquireViaBrowser();
   };
 
+  const ELEVATED_BUFFER_SECONDS = 300;
+  const isElevatedFresh = (cached: CachedToken | null): boolean => {
+    if (!cached?.elevated_access_token || !cached.elevated_expires_on) return false;
+    return Date.now() / 1000 < cached.elevated_expires_on - ELEVATED_BUFFER_SECONDS;
+  };
+
+  const recaptureElevated = async (): Promise<Result<AccessToken, AuthError>> => {
+    try {
+      const captured = await browserAuth.acquireElevatedToken();
+      if (!captured) {
+        return err({
+          type: 'auth_failed',
+          message:
+            'elevated token capture failed (no token returned from m365.cloud.microsoft). The historical-version commands need an elevated Graph token; try `ask-marcel logout && ask-marcel login` to refresh the persistent profile cookies.',
+        });
+      }
+      await persistElevated(captured);
+      logger.info('auth.elevated.recaptured');
+      return ok(captured);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return err({ type: 'auth_failed', message: `elevated capture threw: ${msg}` });
+    }
+  };
+
+  const getElevatedAccessToken = async (): Promise<Result<AccessToken, AuthError>> => {
+    const cached = await readCache();
+    if (isElevatedFresh(cached) && cached?.elevated_access_token) {
+      const validated = accessToken(cached.elevated_access_token);
+      if (validated.ok) {
+        logger.info('auth.elevated.cache_hit');
+        return ok(validated.value);
+      }
+    }
+    // Elevated absent or expired; need to re-capture. The persistent
+    // profile cookies do the silent SSO, no UI prompt.
+    return recaptureElevated();
+  };
+
   const logout = async (): Promise<Result<void, AuthError>> => {
     try {
       await fs.deleteIfExists(cachePath);
@@ -94,7 +193,7 @@ const createAuthManagerFromApi = (browserAuth: BrowserAuth, cachePath: string, l
     }
   };
 
-  return { getAccessToken, logout };
+  return { getAccessToken, getElevatedAccessToken, logout };
 };
 
 const defaultFileSystem = (): FileSystem => (typeof globalThis.Bun !== 'undefined' ? createBunFileSystem() : createNodeFileSystem());
