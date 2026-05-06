@@ -1744,7 +1744,7 @@ const pathFixtures: Array<{ name: string; params: Record<string, string>; expect
   { name: 'get-excel-table', params: { driveId: 'd1', itemId: 'i1', tableId: 't1' }, expectedPath: '/drives/d1/items/i1/workbook/tables/t1' },
   { name: 'list-excel-table-rows', params: { driveId: 'd1', itemId: 'i1', tableId: 't1' }, expectedPath: '/drives/d1/items/i1/workbook/tables/t1/rows' },
   { name: 'get-drive-delta', params: { driveId: 'd1', itemId: 'i1' }, expectedPath: '/drives/d1/items/i1/delta()' },
-  { name: 'search-sharepoint-sites', params: {}, expectedPath: '/sites' },
+  { name: 'search-sharepoint-sites', params: {}, expectedPath: '/me/followedSites' },
   { name: 'search-sharepoint-sites-by-name', params: { query: 'marketing' }, expectedPath: '/sites?search=marketing' },
   { name: 'get-sharepoint-site', params: { siteId: 's1' }, expectedPath: '/sites/s1' },
   { name: 'list-sharepoint-site-drives', params: { siteId: 's1' }, expectedPath: '/sites/s1/drives' },

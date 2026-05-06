@@ -17,6 +17,7 @@ const meta: CommandMeta = {
       key: 'onenoteSectionId',
       required: true,
       description: 'OneNote section ID. Returned by `ask-marcel list-onenote-notebook-sections` or `list-all-onenote-sections`.',
+      aliases: [{ name: 'section-id', key: 'sectionId' }],
     },
   ],
   example: "ask-marcel list-onenote-section-pages --onenote-section-id '1-abc...'",

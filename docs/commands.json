@@ -1,7 +1,7 @@
 {
   "package": "ask-marcel-office-cli",
-  "version": "0.7.3",
-  "generatedAt": "2026-05-06T01:02:25.625Z",
+  "version": "0.7.4",
+  "generatedAt": "2026-05-06T01:58:08.782Z",
   "commands": [
     {
       "name": "convert-mail-attachment-to-markdown",
@@ -53,7 +53,7 @@
     },
     {
       "name": "convert-mail-to-markdown",
-      "summary": "Render a single Outlook email as markdown — headers (`**From:**`, `**To:**`, `**Subject:**`, `**Date:**`) followed by the body run through turndown. Inline images attached with `isInline:true` and an `image/*` content-type are embedded as base64 `data:` URIs so the output is self-contained (Hardening #1: non-image inline attachments are NOT embedded). One Graph round-trip via `?$expand=attachments`.",
+      "summary": "Render a single Outlook email as markdown — headers in this order: `**Subject:**`, `**From:**`, `**To:**`, `**Cc:**` (only when present), `**Date:**` — followed by the body run through turndown. Inline images attached with `isInline:true` and an `image/*` content-type are embedded as base64 `data:` URIs so the output is self-contained (Hardening #1: non-image inline attachments are NOT embedded). One Graph round-trip via `?$expand=attachments`.",
       "category": "mail",
       "graphMethod": "GET",
       "graphPathTemplate": "/me/messages/{message-id}",
@@ -511,7 +511,13 @@
           "name": "onenote-page-id",
           "key": "onenotePageId",
           "required": true,
-          "description": "OneNote page ID. Returned by `ask-marcel list-onenote-section-pages`."
+          "description": "OneNote page ID. Returned by `ask-marcel list-onenote-section-pages`.",
+          "aliases": [
+            {
+              "name": "page-id",
+              "key": "pageId"
+            }
+          ]
         }
       ],
       "example": "ask-marcel get-onenote-page-as-markdown --onenote-page-id '1-abc...'",
@@ -529,7 +535,13 @@
           "name": "onenote-page-id",
           "key": "onenotePageId",
           "required": true,
-          "description": "OneNote page ID. Returned by `ask-marcel list-onenote-section-pages`."
+          "description": "OneNote page ID. Returned by `ask-marcel list-onenote-section-pages`.",
+          "aliases": [
+            {
+              "name": "page-id",
+              "key": "pageId"
+            }
+          ]
         }
       ],
       "example": "ask-marcel get-onenote-page-content --onenote-page-id '1-abc...'",
@@ -547,7 +559,13 @@
           "name": "planner-bucket-id",
           "key": "plannerBucketId",
           "required": true,
-          "description": "Planner bucket ID. Returned by `ask-marcel list-plan-buckets`."
+          "description": "Planner bucket ID. Returned by `ask-marcel list-plan-buckets`.",
+          "aliases": [
+            {
+              "name": "bucket-id",
+              "key": "bucketId"
+            }
+          ]
         }
       ],
       "example": "ask-marcel get-planner-bucket --planner-bucket-id 'sFNeQRFu_kqhxpwwAhmA15gAGfoT'",
@@ -565,7 +583,13 @@
           "name": "planner-plan-id",
           "key": "plannerPlanId",
           "required": true,
-          "description": "Planner plan ID. Returned in the `planId` field of any task from `ask-marcel list-planner-tasks`."
+          "description": "Planner plan ID. Returned in the `planId` field of any task from `ask-marcel list-planner-tasks`.",
+          "aliases": [
+            {
+              "name": "plan-id",
+              "key": "planId"
+            }
+          ]
         }
       ],
       "example": "ask-marcel get-planner-plan --planner-plan-id 'xqQg5FS2LkCp935s-FIFm5gAB6'",
@@ -583,7 +607,13 @@
           "name": "planner-task-id",
           "key": "plannerTaskId",
           "required": true,
-          "description": "Planner task ID. Returned by `ask-marcel list-planner-tasks` or `list-plan-tasks`."
+          "description": "Planner task ID. Returned by `ask-marcel list-planner-tasks` or `list-plan-tasks`.",
+          "aliases": [
+            {
+              "name": "task-id",
+              "key": "taskId"
+            }
+          ]
         }
       ],
       "example": "ask-marcel get-planner-task --planner-task-id '01tx7Ic7-USXEwt0lvR1cmgAH8gK'",
@@ -601,7 +631,13 @@
           "name": "planner-task-id",
           "key": "plannerTaskId",
           "required": true,
-          "description": "Planner task ID. Returned by `ask-marcel list-planner-tasks` or `list-plan-tasks`."
+          "description": "Planner task ID. Returned by `ask-marcel list-planner-tasks` or `list-plan-tasks`.",
+          "aliases": [
+            {
+              "name": "task-id",
+              "key": "taskId"
+            }
+          ]
         }
       ],
       "example": "ask-marcel get-planner-task-details --planner-task-id '01tx7Ic7-USXEwt0lvR1cmgAH8gK'",
@@ -643,7 +679,7 @@
           "name": "path",
           "key": "path",
           "required": true,
-          "description": "Server-relative path starting with `/`, e.g. `/sites/Marketing` or `/teams/Marketing/Subsite`. Take the URL pathname after the hostname."
+          "description": "`--path` (server-relative) starts with `/`, e.g. `/sites/Marketing` or `/teams/Marketing/Subsite`. Take the URL pathname after the hostname."
         }
       ],
       "example": "ask-marcel get-sharepoint-site-by-path --hostname 'contoso.sharepoint.com' --path '/sites/Marketing'",
@@ -835,13 +871,25 @@
           "name": "todo-task-list-id",
           "key": "todoTaskListId",
           "required": true,
-          "description": "To Do task list ID. Returned by `ask-marcel list-todo-task-lists`."
+          "description": "To Do task list ID. Returned by `ask-marcel list-todo-task-lists`.",
+          "aliases": [
+            {
+              "name": "task-list-id",
+              "key": "taskListId"
+            }
+          ]
         },
         {
           "name": "todo-task-id",
           "key": "todoTaskId",
           "required": true,
-          "description": "To Do task ID. Returned by `ask-marcel list-todo-tasks`."
+          "description": "To Do task ID. Returned by `ask-marcel list-todo-tasks`.",
+          "aliases": [
+            {
+              "name": "task-id",
+              "key": "taskId"
+            }
+          ]
         }
       ],
       "example": "ask-marcel get-todo-task --todo-task-list-id 'AAMkAGI...' --todo-task-id 'AAMkABC...'",
@@ -1168,7 +1216,13 @@
           "name": "todo-task-list-id",
           "key": "todoTaskListId",
           "required": true,
-          "description": "todoTaskList ID. Returned by `ask-marcel list-todo-task-lists`. Well-known names also work, e.g. `tasks` for the default list. There is no Graph endpoint that returns incomplete tasks across every list — call this once per list."
+          "description": "todoTaskList ID. Returned by `ask-marcel list-todo-task-lists`. Well-known names also work, e.g. `tasks` for the default list. There is no Graph endpoint that returns incomplete tasks across every list — call this once per list.",
+          "aliases": [
+            {
+              "name": "task-list-id",
+              "key": "taskListId"
+            }
+          ]
         }
       ],
       "example": "ask-marcel list-incomplete-todo-tasks --todo-task-list-id 'tasks'",
@@ -1330,7 +1384,13 @@
           "name": "onenote-section-id",
           "key": "onenoteSectionId",
           "required": true,
-          "description": "OneNote section ID. Returned by `ask-marcel list-onenote-notebook-sections` or `list-all-onenote-sections`."
+          "description": "OneNote section ID. Returned by `ask-marcel list-onenote-notebook-sections` or `list-all-onenote-sections`.",
+          "aliases": [
+            {
+              "name": "section-id",
+              "key": "sectionId"
+            }
+          ]
         }
       ],
       "example": "ask-marcel list-onenote-section-pages --onenote-section-id '1-abc...'",
@@ -1349,7 +1409,13 @@
           "name": "planner-plan-id",
           "key": "plannerPlanId",
           "required": true,
-          "description": "Planner plan ID. Returned in the `planId` field of any task from `ask-marcel list-planner-tasks`."
+          "description": "Planner plan ID. Returned in the `planId` field of any task from `ask-marcel list-planner-tasks`.",
+          "aliases": [
+            {
+              "name": "plan-id",
+              "key": "planId"
+            }
+          ]
         }
       ],
       "example": "ask-marcel list-plan-buckets --planner-plan-id 'xqQg5FS2LkCp935s-FIFm5gAB6'",
@@ -1368,7 +1434,13 @@
           "name": "planner-plan-id",
           "key": "plannerPlanId",
           "required": true,
-          "description": "Planner plan ID. Returned in the `planId` field of any task from `ask-marcel list-planner-tasks`."
+          "description": "Planner plan ID. Returned in the `planId` field of any task from `ask-marcel list-planner-tasks`.",
+          "aliases": [
+            {
+              "name": "plan-id",
+              "key": "planId"
+            }
+          ]
         }
       ],
       "example": "ask-marcel list-plan-tasks --planner-plan-id 'xqQg5FS2LkCp935s-FIFm5gAB6'",
@@ -1512,13 +1584,25 @@
           "name": "todo-task-list-id",
           "key": "todoTaskListId",
           "required": true,
-          "description": "To Do task list ID. Returned by `ask-marcel list-todo-task-lists`."
+          "description": "To Do task list ID. Returned by `ask-marcel list-todo-task-lists`.",
+          "aliases": [
+            {
+              "name": "task-list-id",
+              "key": "taskListId"
+            }
+          ]
         },
         {
           "name": "todo-task-id",
           "key": "todoTaskId",
           "required": true,
-          "description": "To Do task ID. Returned by `ask-marcel list-todo-tasks`."
+          "description": "To Do task ID. Returned by `ask-marcel list-todo-tasks`.",
+          "aliases": [
+            {
+              "name": "task-id",
+              "key": "taskId"
+            }
+          ]
         }
       ],
       "example": "ask-marcel list-todo-linked-resources --todo-task-list-id 'AAMkAGI...' --todo-task-id 'AAMkABC...'",
@@ -1549,7 +1633,13 @@
           "name": "todo-task-list-id",
           "key": "todoTaskListId",
           "required": true,
-          "description": "To Do task list ID. Returned by `ask-marcel list-todo-task-lists`."
+          "description": "To Do task list ID. Returned by `ask-marcel list-todo-task-lists`.",
+          "aliases": [
+            {
+              "name": "task-list-id",
+              "key": "taskListId"
+            }
+          ]
         }
       ],
       "example": "ask-marcel list-todo-tasks --todo-task-list-id 'AAMkAGI...'",
@@ -1658,14 +1748,14 @@
     },
     {
       "name": "search-sharepoint-sites",
-      "summary": "List the SharePoint sites the signed-in user has access to (returns the followed sites by default).",
+      "summary": "List the SharePoint sites the signed-in user has explicitly followed. Hits `GET /me/followedSites` (the unauthenticated `GET /sites` returns an empty collection in most tenants — for free-text discovery use `search-sharepoint-sites-by-name`).",
       "category": "sharepoint",
       "graphMethod": "GET",
-      "graphPathTemplate": "/sites",
-      "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/site-search",
+      "graphPathTemplate": "/me/followedSites",
+      "graphDocsUrl": "https://learn.microsoft.com/en-us/graph/api/user-list-followedsites",
       "options": [],
       "example": "ask-marcel search-sharepoint-sites",
-      "responseShape": "collection of Microsoft Graph `site` resources under `value[]`",
+      "responseShape": "collection of Microsoft Graph `site` resources (the user’s followed sites) under `value[]`",
       "pagination": true
     },
     {

@@ -29,7 +29,7 @@ const meta: CommandMeta = {
       name: 'path',
       key: 'path',
       required: true,
-      description: 'Server-relative path starting with `/`, e.g. `/sites/Marketing` or `/teams/Marketing/Subsite`. Take the URL pathname after the hostname.',
+      description: '`--path` (server-relative) starts with `/`, e.g. `/sites/Marketing` or `/teams/Marketing/Subsite`. Take the URL pathname after the hostname.',
     },
   ],
   example: "ask-marcel get-sharepoint-site-by-path --hostname 'contoso.sharepoint.com' --path '/sites/Marketing'",

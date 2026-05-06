@@ -11,7 +11,15 @@ const meta: CommandMeta = {
   graphMethod: 'GET',
   graphPathTemplate: '/planner/tasks/{planner-task-id}/details',
   graphDocsUrl: 'https://learn.microsoft.com/en-us/graph/api/plannertaskdetails-get',
-  options: [{ name: 'planner-task-id', key: 'plannerTaskId', required: true, description: 'Planner task ID. Returned by `ask-marcel list-planner-tasks` or `list-plan-tasks`.' }],
+  options: [
+    {
+      name: 'planner-task-id',
+      key: 'plannerTaskId',
+      required: true,
+      description: 'Planner task ID. Returned by `ask-marcel list-planner-tasks` or `list-plan-tasks`.',
+      aliases: [{ name: 'task-id', key: 'taskId' }],
+    },
+  ],
   example: "ask-marcel get-planner-task-details --planner-task-id '01tx7Ic7-USXEwt0lvR1cmgAH8gK'",
   responseShape: 'single Microsoft Graph `plannerTaskDetails` resource',
 };

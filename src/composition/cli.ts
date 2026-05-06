@@ -121,7 +121,20 @@ const buildCli = (deps: BuildCliDeps): Command => {
     program.commandsGroup(`${CATEGORY_LABELS[category]}:`);
     for (const [name, cmd] of entries) {
       const commandDef = program.command(name).description(cmd.meta.summary);
-      for (const opt of cmd.meta.options) commandDef.requiredOption(`--${opt.name} <value>`, opt.description);
+      for (const opt of cmd.meta.options) {
+        if (opt.aliases && opt.aliases.length > 0) {
+          // When aliases exist we can't use `requiredOption` for the canonical
+          // — Commander would reject alias-only invocations (the canonical
+          // long flag would be missing). Schema validation
+          // (z.string().min(1)) enforces required-ness instead.
+          commandDef.option(`--${opt.name} <value>`, opt.description);
+          for (const alias of opt.aliases) {
+            commandDef.option(`--${alias.name} <value>`, `(alias for --${opt.name})`);
+          }
+        } else {
+          commandDef.requiredOption(`--${opt.name} <value>`, opt.description);
+        }
+      }
       const helpLines = [
         `\nGraph endpoint: ${cmd.meta.graphMethod} ${cmd.meta.graphPathTemplate}`,
         `Microsoft Learn: ${cmd.meta.graphDocsUrl}`,
@@ -131,7 +144,16 @@ const buildCli = (deps: BuildCliDeps): Command => {
       ];
       commandDef.addHelpText('after', helpLines.join('\n'));
       commandDef.action(async (opts: Record<string, string>) => {
-        const result = await cmd.execute(graph, opts);
+        const normalized: Record<string, string> = { ...opts };
+        for (const opt of cmd.meta.options) {
+          for (const alias of opt.aliases ?? []) {
+            const aliasValue = normalized[alias.key];
+            if (typeof aliasValue === 'string' && normalized[opt.key] === undefined) {
+              normalized[opt.key] = aliasValue;
+            }
+          }
+        }
+        const result = await cmd.execute(graph, normalized);
         if (result.ok) render(result.value, logger);
         else fail(result.error.message);
       });

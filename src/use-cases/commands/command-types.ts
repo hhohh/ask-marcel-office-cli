@@ -9,11 +9,23 @@ type CommandCategory = 'auth' | 'drive' | 'excel' | 'sharepoint' | 'tasks' | 'ma
 
 type CommandHttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
+type CommandOptionAlias = {
+  readonly name: string; // kebab-case (the user-facing flag, without `--`)
+  readonly key: string; // camelCase (commander auto-keyed name)
+};
+
 type CommandOptionMeta = {
   readonly name: string;
   readonly key: string;
   readonly description: string;
   readonly required: true;
+  /**
+   * Optional secondary spellings of the same flag. Both the canonical
+   * `name` and every alias name are accepted on the command line; values
+   * passed under an alias are normalized to the canonical `key` before
+   * the schema runs. The canonical name is what `--help` shows first.
+   */
+  readonly aliases?: ReadonlyArray<CommandOptionAlias>;
 };
 
 type CommandMeta = {
@@ -35,4 +47,4 @@ type Command = {
   readonly meta: CommandMeta;
 };
 
-export type { Command, CommandCategory, CommandExecute, CommandHttpMethod, CommandMeta, CommandOptionMeta, CommandSchema };
+export type { Command, CommandCategory, CommandExecute, CommandHttpMethod, CommandMeta, CommandOptionAlias, CommandOptionMeta, CommandSchema };

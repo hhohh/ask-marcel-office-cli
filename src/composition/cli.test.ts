@@ -131,6 +131,44 @@ describe('buildCli command surface', () => {
     expect(out).toContain('Vincent');
   });
 
+  it('accepts both the canonical and the alias spelling of a command flag (e.g. --task-list-id alongside --todo-task-list-id)', async () => {
+    let capturedPath = '';
+    const captureGraph: GraphClient = {
+      get: async (path: string) => {
+        capturedPath = path;
+        return { ok: true, value: { value: [] } };
+      },
+      post: async () => ({ ok: true, value: {} }),
+      getBinary: async () => ({ ok: true, value: {} }),
+      fetchUrl: async () => ({ ok: true, value: {} }),
+      put: async () => ({ ok: true, value: {} }),
+      delete: async () => ({ ok: true, value: {} }),
+    };
+    const logger = createLoggerFake();
+    const cli = buildCli({ auth: okAuth(), graph: captureGraph, logger, processRunner: createProcessRunnerFake() });
+    await captureStream('stdout', () => cli.parseAsync(['node', 'ask-marcel', 'list-todo-tasks', '--task-list-id', 'AAMkABC']));
+    expect(capturedPath).toBe('/me/todo/lists/AAMkABC/tasks');
+  });
+
+  it('still accepts the canonical flag name when the user does not use the alias', async () => {
+    let capturedPath = '';
+    const captureGraph: GraphClient = {
+      get: async (path: string) => {
+        capturedPath = path;
+        return { ok: true, value: { value: [] } };
+      },
+      post: async () => ({ ok: true, value: {} }),
+      getBinary: async () => ({ ok: true, value: {} }),
+      fetchUrl: async () => ({ ok: true, value: {} }),
+      put: async () => ({ ok: true, value: {} }),
+      delete: async () => ({ ok: true, value: {} }),
+    };
+    const logger = createLoggerFake();
+    const cli = buildCli({ auth: okAuth(), graph: captureGraph, logger, processRunner: createProcessRunnerFake() });
+    await captureStream('stdout', () => cli.parseAsync(['node', 'ask-marcel', 'list-todo-tasks', '--todo-task-list-id', 'AAMkXYZ']));
+    expect(capturedPath).toBe('/me/todo/lists/AAMkXYZ/tasks');
+  });
+
   it('renders the Graph error message when a generic Graph command fails', async () => {
     const logger = createLoggerFake();
     const cli = buildCli({

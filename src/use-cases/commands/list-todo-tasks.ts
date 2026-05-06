@@ -11,7 +11,15 @@ const meta: CommandMeta = {
   graphMethod: 'GET',
   graphPathTemplate: '/me/todo/lists/{todo-task-list-id}/tasks',
   graphDocsUrl: 'https://learn.microsoft.com/en-us/graph/api/todotasklist-list-tasks',
-  options: [{ name: 'todo-task-list-id', key: 'todoTaskListId', required: true, description: 'To Do task list ID. Returned by `ask-marcel list-todo-task-lists`.' }],
+  options: [
+    {
+      name: 'todo-task-list-id',
+      key: 'todoTaskListId',
+      required: true,
+      description: 'To Do task list ID. Returned by `ask-marcel list-todo-task-lists`.',
+      aliases: [{ name: 'task-list-id', key: 'taskListId' }],
+    },
+  ],
   example: "ask-marcel list-todo-tasks --todo-task-list-id 'AAMkAGI...'",
   responseShape: 'collection of Microsoft Graph `todoTask` resources under `value[]`',
   pagination: true,

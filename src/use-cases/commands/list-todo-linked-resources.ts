@@ -12,8 +12,20 @@ const meta: CommandMeta = {
   graphPathTemplate: '/me/todo/lists/{todo-task-list-id}/tasks/{todo-task-id}/linkedResources',
   graphDocsUrl: 'https://learn.microsoft.com/en-us/graph/api/todotask-list-linkedresources',
   options: [
-    { name: 'todo-task-list-id', key: 'todoTaskListId', required: true, description: 'To Do task list ID. Returned by `ask-marcel list-todo-task-lists`.' },
-    { name: 'todo-task-id', key: 'todoTaskId', required: true, description: 'To Do task ID. Returned by `ask-marcel list-todo-tasks`.' },
+    {
+      name: 'todo-task-list-id',
+      key: 'todoTaskListId',
+      required: true,
+      description: 'To Do task list ID. Returned by `ask-marcel list-todo-task-lists`.',
+      aliases: [{ name: 'task-list-id', key: 'taskListId' }],
+    },
+    {
+      name: 'todo-task-id',
+      key: 'todoTaskId',
+      required: true,
+      description: 'To Do task ID. Returned by `ask-marcel list-todo-tasks`.',
+      aliases: [{ name: 'task-id', key: 'taskId' }],
+    },
   ],
   example: "ask-marcel list-todo-linked-resources --todo-task-list-id 'AAMkAGI...' --todo-task-id 'AAMkABC...'",
   responseShape: 'collection of Microsoft Graph `linkedResource` resources under `value[]`',

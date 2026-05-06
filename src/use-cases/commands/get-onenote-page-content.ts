@@ -19,7 +19,15 @@ const meta: CommandMeta = {
   graphMethod: 'GET',
   graphPathTemplate: '/me/onenote/pages/{onenote-page-id}/content',
   graphDocsUrl: 'https://learn.microsoft.com/en-us/graph/api/page-get',
-  options: [{ name: 'onenote-page-id', key: 'onenotePageId', required: true, description: 'OneNote page ID. Returned by `ask-marcel list-onenote-section-pages`.' }],
+  options: [
+    {
+      name: 'onenote-page-id',
+      key: 'onenotePageId',
+      required: true,
+      description: 'OneNote page ID. Returned by `ask-marcel list-onenote-section-pages`.',
+      aliases: [{ name: 'page-id', key: 'pageId' }],
+    },
+  ],
   example: "ask-marcel get-onenote-page-content --onenote-page-id '1-abc...'",
   responseShape: '`{ contentType: "text/html", size: <chars>, text: "<html>..." }` — the rendered OneNote page body wrapped in a JSON envelope',
 };

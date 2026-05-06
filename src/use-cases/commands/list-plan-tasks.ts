@@ -18,6 +18,7 @@ const meta: CommandMeta = {
       key: 'plannerPlanId',
       required: true,
       description: 'Planner plan ID. Returned in the `planId` field of any task from `ask-marcel list-planner-tasks`.',
+      aliases: [{ name: 'plan-id', key: 'planId' }],
     },
   ],
   example: "ask-marcel list-plan-tasks --planner-plan-id 'xqQg5FS2LkCp935s-FIFm5gAB6'",
