@@ -1,5 +1,6 @@
 import { Command, InvalidArgumentError, Option } from 'commander';
 import type { AuthManager } from '../infra/auth.ts';
+import { createAuthManager } from '../infra/auth.ts';
 import type { GraphClient, GraphError } from '../infra/graph-client.ts';
 import type { ErrorSource } from '../presenter/error-hints.ts';
 import type { OutputFormat } from '../presenter/output.ts';
@@ -323,8 +324,18 @@ const buildCli = (deps: BuildCliDeps): Command => {
   const loginCmd = program
     .command('login')
     .description('Authenticate against Microsoft Graph using the Teams web client (cached token → refresh → browser fallback).')
-    .action(async () => {
-      const result = await login.execute(auth);
+    .option('--use-playwright', 'Use Playwright for browser authentication instead of the browser extension')
+    .action(async (opts: { usePlaywright?: boolean }) => {
+      // Create a new auth manager with the appropriate fallback setting
+      // Default: use browser extension only (no Playwright fallback)
+      // --use-playwright: allow Playwright fallback if extension fails
+      const loginAuth = createAuthManager({
+        cachePath: process.env.HOME ? `${process.env.HOME}/.ask-marcel/token-cache.json` : '',
+        logger,
+        fs,
+        usePlaywrightFallback: opts.usePlaywright ?? false,
+      });
+      const result = await login.execute(loginAuth);
       if (!result.ok) {
         fail(result.error.type === 'auth_cancelled' ? 'Authentication cancelled' : result.error.message);
         return;
@@ -354,8 +365,11 @@ const buildCli = (deps: BuildCliDeps): Command => {
     [
       '',
       'Example:       ask-marcel login',
+      '               ask-marcel login --use-playwright  (fallback to Playwright if extension fails)',
       'Token cache:   ~/.ask-marcel/token-cache.json (access + refresh tokens, JSON, 0600).',
-      'Browser data:  ~/.ask-marcel/browser-profile/ (Playwright persistent context).',
+      'Browser ext:   Install "Ask Marcel Companion" for faster login (no Playwright needed).',
+      '               See browser-extension/README.md for installation instructions.',
+      'Browser data:  ~/.ask-marcel/browser-profile/ (Playwright persistent context, only with --use-playwright).',
       'Scopes:        granted by Microsoft to the Teams web client (CLIENT_ID 5e3ce6c0-...);',
       '               this CLI cannot request additional scopes. To inspect the granted set,',
       '               run `ask-marcel scopes-check`.',

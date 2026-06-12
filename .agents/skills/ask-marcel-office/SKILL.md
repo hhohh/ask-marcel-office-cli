@@ -22,6 +22,8 @@ A read-only Microsoft Graph CLI with 175 commands. All commands are `GET` (or `P
 npm i -g ask-marcel-office-cli
 
 # Authenticate (browser OAuth, token cached at ~/.ask-marcel/token-cache.json)
+# Option 1: Install the Ask Marcel Companion browser extension for faster login (no Playwright needed)
+# Option 2: Without extension, falls back to Playwright automatically
 ask-marcel login
 
 # Get all IDs needed for other commands in one call

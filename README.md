@@ -67,6 +67,22 @@ The CLI follows any SharePoint media-transform redirect internally, so the LLM n
 
 No Azure app, no tenant admin. The CLI captures the same token the Teams web client uses — works for any Microsoft 365 account, personal or enterprise.
 
+**Login flow:** The CLI opens your default browser (Chrome/Edge) in incognito/inprivate mode with a callback port. The [Ask Marcel Companion](./browser-extension/) browser extension captures the Graph token from the OAuth response and sends it back to the CLI.
+
+```bash
+ask-marcel login              # uses browser extension (recommended)
+ask-marcel login --use-playwright  # fallback: Playwright headless browser
+```
+
+**Browser extension setup (one-time):**
+
+1. Open `chrome://extensions/` (Chrome) or `edge://extensions/` (Edge)
+2. Enable "Developer mode" (top-right toggle)
+3. Click "Load unpacked" → select the `browser-extension/` folder from this repo
+4. Done — the extension will auto-capture tokens on `ask-marcel login`
+
+> Without the extension, `login` falls back to Playwright (slower, requires `npx playwright install chromium`).
+
 ### Stable error envelope with actionable hints
 
 Every failure — Graph, CLI parser, Zod validation, substrate — comes back as `{ok: false, error, errorCode?, hint?, source}`. The `hint` field tells the model *what to do next* (e.g. "string literals MUST use single quotes; embed one by doubling it") and `source` tells it where the failure came from. Curated rules for 20+ recurring Graph errors plus cross-resolver pointers (passed a Teams URL to `resolve-mail-link`? Hint says "re-run with `resolve-teams-link`").
