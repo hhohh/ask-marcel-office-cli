@@ -329,8 +329,10 @@ const buildCli = (deps: BuildCliDeps): Command => {
       // Create a new auth manager with the appropriate fallback setting
       // Default: use browser extension only (no Playwright fallback)
       // --use-playwright: allow Playwright fallback if extension fails
+      // Cross-platform home directory
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
       const loginAuth = createAuthManager({
-        cachePath: process.env.HOME ? `${process.env.HOME}/.ask-marcel/token-cache.json` : '',
+        cachePath: homeDir ? `${homeDir}/.ask-marcel/token-cache.json` : '',
         logger,
         fs,
         usePlaywrightFallback: opts.usePlaywright ?? false,

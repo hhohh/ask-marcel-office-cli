@@ -77,8 +77,9 @@ const openBrowser = async (url: string): Promise<void> => {
       command = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --incognito "${url}" 2>/dev/null || "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" --inprivate "${url}" 2>/dev/null || open "${url}"`;
     }
   } else if (platform === 'win32') {
-    // Windows: try Edge InPrivate, then Chrome Incognito
-    command = `start msedge -inprivate "${url}" 2>nul || start chrome --incognito "${url}"`;
+    // Windows: use PowerShell to open default browser with incognito
+    // Try Edge first (most common on Windows), then Chrome, then default
+    command = `powershell -Command "Start-Process 'msedge' -ArgumentList '-inprivate','${url}' -ErrorAction SilentlyContinue" 2>nul || powershell -Command "Start-Process 'chrome' -ArgumentList '--incognito','${url}' -ErrorAction SilentlyContinue" 2>nul || start "" "${url}"`;
   } else {
     // Linux: Chrome incognito
     command = `google-chrome --incognito "${url}" 2>/dev/null || chromium --incognito "${url}" 2>/dev/null || xdg-open "${url}"`;
@@ -123,6 +124,11 @@ const authenticateViaSystemBrowser = async (deps: SystemBrowserAuthDeps): Promis
   // 2. Open system browser with the port in URL
   const teamsUrl = `${TEAMS_URL}?ask_marcel_port=${actualPort}`;
   logger.info('system_browser.opening', { url: teamsUrl });
+  
+  // Show progress to user
+  process.stderr.write('Opening browser for authentication...\n');
+  process.stderr.write('Please ensure the Ask Marcel Companion extension is installed in your browser.\n');
+  process.stderr.write('Waiting for token from browser extension (this may take a few minutes)...\n');
 
   try {
     await openBrowser(teamsUrl);
@@ -144,7 +150,11 @@ const authenticateViaSystemBrowser = async (deps: SystemBrowserAuthDeps): Promis
     // Extension timeout or server error
     logger.info('system_browser.failed', { reason: result.error.type });
     if (result.error.type === 'timeout') {
-      return err({ type: 'extension_timeout', message: result.error.message });
+      const message = 'Browser extension did not respond within timeout. ' +
+        'Make sure the Ask Marcel Companion extension is installed and enabled in your browser. ' +
+        'See browser-extension/README.md for installation instructions. ' +
+        'Alternatively, use --use-playwright flag for Playwright-based authentication.';
+      return err({ type: 'extension_timeout', message });
     }
     return err({ type: 'server_bind_failed', message: result.error.message });
   }
