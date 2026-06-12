@@ -13,7 +13,7 @@ description: >
 
 # ask-marcel-office
 
-A read-only Microsoft Graph CLI with 165+ commands. All commands are `GET` (or `POST` for search only). No write operations — safe for autonomous agents.
+A read-only Microsoft Graph CLI with 175 commands. All commands are `GET` (or `POST` for search only). No write operations — safe for autonomous agents.
 
 ## Quick start
 
@@ -44,7 +44,7 @@ ask-marcel docs <command>                            # full docs for one command
 
 | Category | Commands | When to use |
 |----------|----------|-------------|
-| **mail** | 29 | Read emails, folders, attachments, rules, categories |
+| **mail** | 31 | Read emails, folders, attachments, rules, categories |
 | **calendar** | 23 | Events, calendar view, shared calendars, attachments |
 | **drive** | 30 | OneDrive files, recent, shared, download/convert |
 | **sharepoint** | 18 | Sites, lists, list items, document libraries |
@@ -103,6 +103,38 @@ Supported: docx, xlsx, pptx, csv, odt/ods/odp, pdf (text layer), legacy .xls/.do
 ```bash
 ask-marcel <download-command> ... --output-path /tmp/file.pdf
 ```
+
+### Create and update mail drafts
+```bash
+# Create a draft
+ask-marcel create-mail-draft \
+  --subject "Q3 Report" \
+  --body-content "Please review the attached report." \
+  --to-recipients "alice@example.com,bob@example.com" \
+  --importance High
+
+# Create an HTML draft in a specific folder
+ask-marcel create-mail-draft \
+  --subject "Weekly Update" \
+  --body-content "<h1>Update</h1><p>Here is the weekly update.</p>" \
+  --body-content-type HTML \
+  --to-recipients "team@example.com" \
+  --mail-folder-id drafts
+
+# Update a draft (modify subject, recipients, or body)
+ask-marcel update-mail-draft \
+  --message-id "AAMkAD..." \
+  --subject "Updated: Q3 Report" \
+  --to-recipients "alice@example.com,charlie@example.com"
+
+# Add CC/BCC to an existing draft
+ask-marcel update-mail-draft \
+  --message-id "AAMkAD..." \
+  --cc-recipients "manager@example.com" \
+  --bcc-recipients "archive@example.com"
+```
+
+Requires `Mail.ReadWrite` scope. Drafts are saved in the Drafts folder by default (or a specified folder via `--mail-folder-id`). Use `get-mail-message` to verify the final state before sending via Outlook.
 
 ### SharePoint link resolution
 ```bash

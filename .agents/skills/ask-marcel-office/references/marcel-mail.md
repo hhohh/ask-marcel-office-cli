@@ -27,6 +27,13 @@ Optional: --inline-images --keep-quoted
 Example: ask-marcel convert-mail-to-markdown --message-id 'AAMkAD...'
 Graph: GET /me/messages/{message-id}
 
+## create-mail-draft
+Create a new mail draft. POST /me/messages (or /me/mailFolders/{id}/messages when --mail-folder-id is set). The draft is saved in the Drafts folder (or the specified folder) and can be sent later via the Outlook client or Graph sendMail. Recipients are comma-separated email addresses. Returns the cr
+Required: --subject --body-content --to-recipients
+Optional: --body-content-type --cc-recipients --bcc-recipients --importance --mail-folder-id
+Example: ask-marcel create-mail-draft --subject "Q3 Report" --body-content "Please review the attached report." --to-recipients "alice@example.com,bob@example.com" --importance High
+Graph: POST /me/messages (or /me/mailFolders/{mail-folder-id}/messages)
+
 ## extract-mail-attachment-images
 Extract the embedded images from an Outlook mail attachment that is a pdf or a docx / xlsx / pptx (and their macro-enabled / template variants). OOXML reads the media parts directly (png/jpg/gif/bmp/tiff/webp/svg), including full-resolution / un-cropped originals and images on hidden slides; pdf wal
 Required: --message-id --attachment-id
@@ -187,3 +194,10 @@ Required: --query
 Optional: --top --skip --select --filter --orderby --expand
 Example: ask-marcel search-mail-messages --query 'from:alice subject:Q3'
 Graph: GET /me/messages?$search="{query}"
+
+## update-mail-draft
+Update an existing mail draft. PATCH /me/messages/{id} — modifies a draft created by create-mail-draft (or any existing draft in the Drafts folder). Only the fields you pass are updated; omitted fields are left unchanged. At least one field must be provided. Returns the updated message object. Use g
+Required: --message-id
+Optional: --subject --body-content --body-content-type --to-recipients --cc-recipients --bcc-recipients --importance
+Example: ask-marcel update-mail-draft --message-id "AAMkAD..." --subject "Updated: Q3 Report" --to-recipients "alice@example.com,charlie@example.com"
+Graph: PATCH /me/messages/{message-id}
