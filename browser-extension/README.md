@@ -1,77 +1,77 @@
-# Ask Marcel Companion - 浏览器插件
+# Ask Marcel Companion - Browser Extension
 
-## 工作原理
+## How It Works
 
-Teams 使用 **authorization code flow**：浏览器先获取 authorization code，然后 Teams 前端用 code 向 `/api/authsvc/v1.0/authz` 交换 access_token。
+Teams uses **authorization code flow**: the browser first obtains an authorization code, then the Teams frontend exchanges the code for an access_token via `/api/authsvc/v1.0/authz`.
 
-插件通过 `chrome.debugger` API 监听 OAuth 服务器 (`login.microsoftonline.com`) 的响应，从响应体中提取 Graph access_token 并发送给 CLI。
+The extension uses the `chrome.debugger` API to monitor OAuth server responses (`login.microsoftonline.com`), extracts the Graph access_token from the response body, and sends it to the CLI.
 
-**流程：**
-1. CLI 运行 `login` 命令时，打开浏览器无痕窗口并访问 `teams.microsoft.com/?ask_marcel_port=PORT`
-2. 插件检测到 `ask_marcel_port` 参数后，自动 attach debugger 到该 tab
-3. 监听 OAuth 服务器的 JSON 响应，等待 `Network.loadingFinished` 事件
-4. 获取响应体，解析 JWT token，验证是否是 Graph token（audience 为 `graph.microsoft.com` 或 `00000003-0000-0000-c000-000000000000`）
-5. 发送 token 到 CLI 的 localhost callback server
-6. 2 秒后自动 detach debugger
+**Flow:**
+1. When the CLI runs the `login` command, it opens an incognito/inprivate browser window and navigates to `teams.microsoft.com/?ask_marcel_port=PORT`
+2. The extension detects the `ask_marcel_port` parameter and automatically attaches the debugger to that tab
+3. Monitors JSON responses from the OAuth server, waiting for the `Network.loadingFinished` event
+4. Retrieves the response body, parses the JWT token, and verifies it's a Graph token (audience must be `graph.microsoft.com` or `00000003-0000-0000-c000-000000000000`)
+5. Sends the token to the CLI's localhost callback server
+6. Automatically detaches the debugger after 2 seconds
 
-**优势：**
-- 使用用户默认浏览器，无需额外安装 Playwright
-- 支持已登录和重新登录两种场景
-- 直接从 OAuth 响应中捕获真实 token
+**Advantages:**
+- Uses the user's default browser, no need to install Playwright separately
+- Supports both already-logged-in and re-login scenarios
+- Captures the real token directly from the OAuth response
 
-**代价：**
-- 浏览器顶部会短暂显示蓝色提示条："Ask Marcel Companion is debugging this browser"
-- 获取 token 后自动消失（约 2 秒）
+**Trade-offs:**
+- A blue notification bar briefly appears at the top of the browser: "Ask Marcel Companion is debugging this browser"
+- The bar disappears automatically after the token is captured (about 2 seconds)
 
-## 安装步骤
+## Installation
 
 ### Chrome / Edge
 
-1. 打开浏览器扩展管理页面：
+1. Open the browser extension management page:
    - Chrome: `chrome://extensions/`
    - Edge: `edge://extensions/`
-2. 开启右上角的 **"开发者模式"**
-3. 点击 **"加载已解压的扩展程序"**
-4. 选择本项目的 `browser-extension/` 目录
-5. 确认插件已启用，版本号为 3.1.0
-6. **启用无痕模式访问权限：** 点击插件的"详情"按钮，开启 **"在无痕模式下启用"**（Chrome）或 **"在 InPrivate 模式下启用"**（Edge）。**此步骤为必需** — CLI 会打开无痕/InPrivate 窗口，而浏览器默认禁止扩展在此模式下运行。
+2. Enable **"Developer mode"** in the top-right corner
+3. Click **"Load unpacked"**
+4. Select the `browser-extension/` directory from this project
+5. Confirm the extension is enabled, version 3.1.0
+6. **Enable incognito/inprivate mode access:** Click the extension's "Details" button, then enable **"Allow in incognito"** (Chrome) or **"Allow in InPrivate"** (Edge). **This step is required** — the CLI opens an incognito/inprivate window, and extensions are disabled in this mode by default.
 
-### 验证安装
+### Verify Installation
 
-插件安装后，可以在扩展管理页面看到 "Ask Marcel Companion"。
+After installation, you can see "Ask Marcel Companion" on the extension management page.
 
-## 使用方式
+## Usage
 
 ```bash
-# 默认使用 Playwright 浏览器
+# Default: use Playwright browser
 ask-marcel login
 
-# 使用浏览器插件（需要已安装插件）
+# Use browser extension (requires extension to be installed)
 ask-marcel login --use-extension
 ```
 
-## 故障排查
+## Troubleshooting
 
-### 命令行一直卡着
+### Command line hangs
 
-1. 检查插件是否已启用
-2. 打开浏览器开发者工具（F12），查看 Console 标签
-3. 应该能看到 `[Ask Marcel]` 开头的日志
-4. 如果没有日志，说明插件未正确加载
+1. Check if the extension is enabled
+2. Open browser developer tools (F12), check the Console tab
+3. You should see logs starting with `[Ask Marcel]`
+4. If no logs appear, the extension is not loaded correctly
 
-### 蓝色提示条不消失
+### Blue notification bar doesn't disappear
 
-- 正常情况下，获取 token 后 2 秒会自动消失
-- 如果一直显示，可能是 token 发送失败
-- 检查 CLI 是否还在运行，localhost server 是否正常监听
+- Normally, it disappears automatically 2 seconds after capturing the token
+- If it stays visible, the token may have failed to send
+- Check if the CLI is still running and if the localhost server is listening properly
 
-### 重新加载插件
+### Reload extension
 
-如果修改了插件代码，需要在扩展管理页面点击刷新按钮重新加载。
+If you modified the extension code, you need to click the refresh button on the extension management page to reload it.
 
-## 安全说明
+## Security
 
-- 插件只在 `teams.microsoft.com` 和 `teams.live.com` 域名下工作
-- 只捕获 Graph token（audience 必须是 `graph.microsoft.com`）
-- token 只发送到 `127.0.0.1`（localhost），不会发送到外部
-- 获取 token 后立即 detach debugger，最小化调试时间
+- The extension only works under `teams.microsoft.com` and `teams.live.com` domains
+- Only captures Graph tokens (audience must be `graph.microsoft.com`)
+- Tokens are only sent to `127.0.0.1` (localhost), never to external servers
+- The debugger is detached immediately after capturing the token, minimizing debugging time
