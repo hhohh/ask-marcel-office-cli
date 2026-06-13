@@ -34,6 +34,7 @@ Teams 使用 **authorization code flow**：浏览器先获取 authorization code
 3. 点击 **"加载已解压的扩展程序"**
 4. 选择本项目的 `browser-extension/` 目录
 5. 确认插件已启用，版本号为 3.1.0
+6. **启用无痕模式访问权限：** 点击插件的"详情"按钮，开启 **"在无痕模式下启用"**（Chrome）或 **"在 InPrivate 模式下启用"**（Edge）。**此步骤为必需** — CLI 会打开无痕/InPrivate 窗口，而浏览器默认禁止扩展在此模式下运行。
 
 ### 验证安装
 

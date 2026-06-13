@@ -19,7 +19,8 @@ Authenticate against Microsoft Graph using the Teams web client credentials. Tok
 1. Open `chrome://extensions/` (Chrome) or `edge://extensions/` (Edge)
 2. Enable "Developer mode"
 3. Click "Load unpacked" → select `browser-extension/` folder from this repo
-4. Use `ask-marcel login --use-extension`
+4. **Enable in incognito/inprivate mode:** Click the extension's "Details" button, then enable "Allow in incognito" (Chrome) or "Allow in InPrivate" (Edge). **This is required** — the CLI opens an incognito/inprivate window, and extensions are disabled there by default.
+5. Use `ask-marcel login --use-extension`
 
 **Token cache location:**
 - macOS/Linux: `~/.ask-marcel/token-cache.json`

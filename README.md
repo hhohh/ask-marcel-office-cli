@@ -79,7 +79,8 @@ ask-marcel login --use-extension  # use browser extension (requires setup)
 1. Open `chrome://extensions/` (Chrome) or `edge://extensions/` (Edge)
 2. Enable "Developer mode" (top-right toggle)
 3. Click "Load unpacked" → select the `browser-extension/` folder from this repo
-4. Done — use `ask-marcel login --use-extension` to authenticate via the extension
+4. **Enable in incognito/inprivate mode:** Click the extension's "Details" button, then enable "Allow in incognito" (Chrome) or "Allow in InPrivate" (Edge). **This is required** — the CLI opens an incognito/inprivate window, and extensions are disabled there by default.
+5. Done — use `ask-marcel login --use-extension` to authenticate via the extension
 
 ### Stable error envelope with actionable hints
 
