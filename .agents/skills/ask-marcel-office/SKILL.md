@@ -22,9 +22,11 @@ A read-only Microsoft Graph CLI with 175 commands. All commands are `GET` (or `P
 npm i -g ask-marcel-office-cli
 
 # Authenticate (browser OAuth, token cached at ~/.ask-marcel/token-cache.json)
-# Option 1: Install the Ask Marcel Companion browser extension for faster login (no Playwright needed)
-# Option 2: Without extension, falls back to Playwright automatically
+# Default: uses Playwright browser
 ask-marcel login
+
+# Alternative: use browser extension (requires one-time setup, see below)
+ask-marcel login --use-extension
 
 # Get all IDs needed for other commands in one call
 ask-marcel my-quick-context
@@ -34,6 +36,23 @@ ask-marcel --help                                    # all commands grouped by c
 ask-marcel help-json --terse --category <name>       # slim JSON for one category
 ask-marcel docs <command>                            # full docs for one command
 ```
+
+### Browser extension setup (optional, for `--use-extension` mode)
+
+The Ask Marcel Companion extension captures tokens from your default browser (Chrome/Edge), avoiding the need for Playwright.
+
+**Installation:**
+1. Open `chrome://extensions/` (Chrome) or `edge://extensions/` (Edge)
+2. Enable "Developer mode" (top-right toggle)
+3. Click "Load unpacked" → select the `browser-extension/` folder from this repo
+4. Done — use `ask-marcel login --use-extension` to authenticate
+
+**How it works:**
+- CLI opens your default browser in incognito/inprivate mode with `teams.microsoft.com/?ask_marcel_port=PORT`
+- Extension detects the port parameter, attaches debugger to capture OAuth responses
+- Extracts Graph access_token from `login.microsoftonline.com` response
+- Sends token back to CLI's localhost callback server
+- Auto-detaches after ~2 seconds (blue debugging bar disappears)
 
 ## Core workflow
 

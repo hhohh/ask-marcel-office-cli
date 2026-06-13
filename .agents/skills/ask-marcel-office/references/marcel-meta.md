@@ -1,5 +1,32 @@
 # Meta commands
 
+## login
+Authenticate against Microsoft Graph using the Teams web client credentials. Token is cached at `~/.ask-marcel/token-cache.json` (0600 permissions).
+
+**Two authentication modes:**
+
+1. **Default (Playwright):** `ask-marcel login`
+   - Uses Playwright to launch a headless browser
+   - Works out of the box (requires `npx playwright install chromium` on first run)
+   - Slower but no setup needed
+
+2. **Browser extension:** `ask-marcel login --use-extension`
+   - Uses your default browser (Chrome/Edge) with the Ask Marcel Companion extension
+   - Faster, uses existing browser session
+   - Requires one-time extension installation (see below)
+
+**Browser extension setup:**
+1. Open `chrome://extensions/` (Chrome) or `edge://extensions/` (Edge)
+2. Enable "Developer mode"
+3. Click "Load unpacked" → select `browser-extension/` folder from this repo
+4. Use `ask-marcel login --use-extension`
+
+**Token cache location:**
+- macOS/Linux: `~/.ask-marcel/token-cache.json`
+- Windows: `%USERPROFILE%\.ask-marcel\token-cache.json`
+
+Graph: GET (meta) OAuth flow via browser
+
 ## convert-local-file
 Convert a file ON DISK to markdown — the only command that never calls Microsoft Graph (works offline, no login). Runs the same local pipelines as `download-drive-item-as-markdown`: docx (mammoth → turndown), xlsx (sheetjs tables, `--max-cells` OOM cap), pptx (per-slide text), odt/ods/odp, csv, pdf 
 Required: --path
