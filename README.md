@@ -67,21 +67,19 @@ The CLI follows any SharePoint media-transform redirect internally, so the LLM n
 
 No Azure app, no tenant admin. The CLI captures the same token the Teams web client uses — works for any Microsoft 365 account, personal or enterprise.
 
-**Login flow:** The CLI opens your default browser (Chrome/Edge) in incognito/inprivate mode with a callback port. The [Ask Marcel Companion](./browser-extension/) browser extension captures the Graph token from the OAuth response and sends it back to the CLI.
+**Login flow:** By default, the CLI uses Playwright to open a browser for authentication. Alternatively, you can use the [Ask Marcel Companion](./browser-extension/) browser extension for faster authentication.
 
 ```bash
-ask-marcel login              # uses browser extension (recommended)
-ask-marcel login --use-playwright  # fallback: Playwright headless browser
+ask-marcel login              # default: Playwright browser
+ask-marcel login --use-extension  # use browser extension (requires setup)
 ```
 
-**Browser extension setup (one-time):**
+**Browser extension setup (optional, one-time):**
 
 1. Open `chrome://extensions/` (Chrome) or `edge://extensions/` (Edge)
 2. Enable "Developer mode" (top-right toggle)
 3. Click "Load unpacked" → select the `browser-extension/` folder from this repo
-4. Done — the extension will auto-capture tokens on `ask-marcel login`
-
-> Without the extension, `login` falls back to Playwright (slower, requires `npx playwright install chromium`).
+4. Done — use `ask-marcel login --use-extension` to authenticate via the extension
 
 ### Stable error envelope with actionable hints
 

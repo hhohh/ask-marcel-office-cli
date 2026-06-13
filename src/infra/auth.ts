@@ -131,8 +131,11 @@ const DEFAULT_CHATSVCAGG_REGION = 'emea';
 
 type SystemBrowserAuthFn = () => Promise<Result<{ accessToken: AccessToken; refreshToken: string | null; elevatedAccessToken?: AccessToken | null; chatsvcaggAccessToken?: AccessToken | null; ic3AccessToken?: AccessToken | null; chatsvcaggRegion?: string }, { type: string; message: string }>>;
 
-const createAuthManagerFromApi = (browserAuth: BrowserAuth, cachePath: string, browserProfileDir: string, logger: Logger, fs: FileSystem, systemBrowserAuthFn?: SystemBrowserAuthFn, usePlaywrightFallback: boolean = true): AuthManager => {
+const createAuthManagerFromApi = (browserAuth: BrowserAuth, cachePath: string, browserProfileDir: string, logger: Logger, fs: FileSystem, systemBrowserAuthFn?: SystemBrowserAuthFn, usePlaywrightFallback: boolean = true, skipSystemBrowser: boolean = false): AuthManager => {
   const systemBrowserAuth = systemBrowserAuthFn ?? (async () => {
+    if (skipSystemBrowser) {
+      return { ok: false as const, error: { type: 'skipped' as const, message: 'system browser skipped' } };
+    }
     const { authenticateViaSystemBrowser } = await import('./system-browser-auth.ts');
     return authenticateViaSystemBrowser({ logger, extensionTimeoutMs: 10_000 });
   });
@@ -633,7 +636,7 @@ const stderrProgress = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
 
-const createAuthManager = (deps: { cachePath: string; logger: Logger; fs?: FileSystem; browserProfileDir?: string; systemBrowserAuth?: SystemBrowserAuthFn; usePlaywrightFallback?: boolean }): AuthManager => {
+const createAuthManager = (deps: { cachePath: string; logger: Logger; fs?: FileSystem; browserProfileDir?: string; systemBrowserAuth?: SystemBrowserAuthFn; usePlaywrightFallback?: boolean; skipSystemBrowser?: boolean }): AuthManager => {
   const fs = deps.fs ?? defaultFileSystem();
   const browserProfileDir = deps.browserProfileDir ?? defaultBrowserProfileDir();
   const browserAuth = createBrowserAuth({
@@ -642,7 +645,7 @@ const createAuthManager = (deps: { cachePath: string; logger: Logger; fs?: FileS
     freshCachedToken: createFreshCachedTokenProbe(fs, deps.cachePath),
     onProgress: stderrProgress,
   });
-  return createAuthManagerFromApi(browserAuth, deps.cachePath, browserProfileDir, deps.logger, fs, deps.systemBrowserAuth, deps.usePlaywrightFallback);
+  return createAuthManagerFromApi(browserAuth, deps.cachePath, browserProfileDir, deps.logger, fs, deps.systemBrowserAuth, deps.usePlaywrightFallback, deps.skipSystemBrowser);
 };
 
 export { createAuthManager, createAuthManagerFromApi, createFreshCachedTokenProbe, stderrProgress };

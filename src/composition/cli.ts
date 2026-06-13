@@ -324,18 +324,19 @@ const buildCli = (deps: BuildCliDeps): Command => {
   const loginCmd = program
     .command('login')
     .description('Authenticate against Microsoft Graph using the Teams web client (cached token → refresh → browser fallback).')
-    .option('--use-playwright', 'Use Playwright for browser authentication instead of the browser extension')
-    .action(async (opts: { usePlaywright?: boolean }) => {
-      // Create a new auth manager with the appropriate fallback setting
-      // Default: use browser extension only (no Playwright fallback)
-      // --use-playwright: allow Playwright fallback if extension fails
+    .option('--use-extension', 'Use browser extension for authentication (requires Ask Marcel Companion extension)')
+    .action(async (opts: { useExtension?: boolean }) => {
+      // Default: use Playwright (skipSystemBrowser: true)
+      // --use-extension: use browser extension (skipSystemBrowser: false, usePlaywrightFallback: false)
       // Cross-platform home directory
       const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const useExtension = opts.useExtension ?? false;
       const loginAuth = createAuthManager({
         cachePath: homeDir ? `${homeDir}/.ask-marcel/token-cache.json` : '',
         logger,
         fs,
-        usePlaywrightFallback: opts.usePlaywright ?? false,
+        skipSystemBrowser: !useExtension,
+        usePlaywrightFallback: !useExtension,
       });
       const result = await login.execute(loginAuth);
       if (!result.ok) {

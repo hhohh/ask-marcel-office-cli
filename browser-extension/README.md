@@ -42,11 +42,11 @@ Teams 使用 **authorization code flow**：浏览器先获取 authorization code
 ## 使用方式
 
 ```bash
-# 默认使用浏览器插件（推荐）
+# 默认使用 Playwright 浏览器
 ask-marcel login
 
-# 如果插件未安装或失败，回退到 Playwright
-ask-marcel login --use-playwright
+# 使用浏览器插件（需要已安装插件）
+ask-marcel login --use-extension
 ```
 
 ## 故障排查
